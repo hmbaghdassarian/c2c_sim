@@ -6,9 +6,6 @@
 
 import tempfile
 import os
-print os.getcwd()
-print __file__
-import shutil
 import warnings
 
 import networkx as nx
@@ -16,6 +13,13 @@ import igraph
 
 import scipy
 import pandas as pd
+
+
+# In[ ]:
+
+
+# curdir = os.getcwd()
+# abspath = os.path.dirname(os.path.abspath(__file__))
 
 
 # In[2]:
@@ -114,11 +118,9 @@ class graph_generator():
     #         fitness of node, alpha = 1 / beta + 1, alpha is scale-free exponent
     #     beta = (1/alpha)-1
 
-#         output = tempfile.mkstemp(suffix = '_bipartite_sf.csv', dir = './')[1]
-        dn = os.path.dirname(os.path.abspath(__file__))
-        print(dn)
-        output = tempfile.mkstemp(suffix = '_bipartite_sf.csv', 
-                                  dir = dn)[1]
+        output = tempfile.mkstemp(suffix = '_bipartite_sf.csv', dir = './')[1]
+#         output = tempfile.mkstemp(suffix = '_bipartite_sf.csv', 
+#                                   dir = 'abspath')[1]
         print(output)
         beta = alpha
         cmd = 'Rscript bigraph_r.r ' + '--beta=' + str(beta) + ' --nodes=' + str(nodes) + ' --degrees=' + str(degrees)
@@ -130,10 +132,12 @@ class graph_generator():
         os.system(cmd)
 
         # format adjacency matrix
-        #adj_matrix = pd.read_csv(output, index_col = 0)
-        print(os.path.join(dn, os.path.basename(output)))
-        adj_matrix = pd.read_csv(os.path.join(dn, os.path.basename(output)), index_col = 0)
-        shutil.rmtree(os.path.dirname(output))#os.remove(output)
+#         os.chdir(abspath)
+#         adj_matrix = pd.read_csv(os.path.join('../../scripts/simulation', os.path.basename(output)), index_col = 0)
+        adj_matrix = pd.read_csv(output, index_col = 0)
+#         os.chdir(curdir)
+       
+        os.remove(output)
         adj_matrix.index = adj_matrix.index -1 # 0 indexing
         adj_matrix.columns = adj_matrix.index
 
