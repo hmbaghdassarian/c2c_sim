@@ -3,3 +3,4 @@
 cell2cell/
 .RData
 .Rhistory
+**/*.ipynb_chekpoints
