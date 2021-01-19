@@ -1,0 +1,11 @@
+Scripts
+1) load_environmental_variables # load global variables from .env
+2) download_data # create data folder and download immutable files from Google Drive
+3) 5k_pbmc_label_transfer # load 5k PBMC data and Zheng data from STAT4, normalize, and do label transfer
+4) velocyto_run10x_5kpbmcs # command line velocyto run10x on the 5k pbmc data
+5) scvelo_analyses/5kpbmc_velocyto_analyses # get psuedotime results (velocyto original or scvelo model)
+6) get_CCI_psuedotime # run Erick's CCI tool on each projected gene expression matrix
+7) CCI_analysis # basic stats on CCI
+8) CCI_dynamics_movie # create two versions of a movie of CCI's
+9) 
+

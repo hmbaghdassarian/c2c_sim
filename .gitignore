@@ -4,3 +4,4 @@ cell2cell/
 .RData
 .Rhistory
 **/*.ipynb_checkpoints
+NK_dir/*
