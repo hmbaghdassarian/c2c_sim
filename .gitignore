@@ -5,3 +5,4 @@ cell2cell/
 .Rhistory
 **/*.ipynb_checkpoints
 NK_dir/*
+**/*.h5ad
