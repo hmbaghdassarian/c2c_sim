@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[3]:
+# In[2]:
 
 
 import os
@@ -29,7 +29,7 @@ from simulation.graphs import graph_generator as gg_
 from simulation import utils
 
 
-# In[4]:
+# In[3]:
 
 
 def weight_bias(n, skew):
@@ -264,7 +264,7 @@ class sim_tensor():
         self.rank = self.cell_lr_metadata.shape[0]
 
 
-# In[15]:
+# In[14]:
 
 
 def fold_change_pattern(initial_value):
@@ -329,8 +329,9 @@ def oscillate(x, n_conditions):
 pattern_mapper = {'linear': linear, 'pulse': pulse, 'oscillate': oscillate}
 
 def generate_pattern(x, n_conditions):
-    pattern = x[0]
-    return pattern_mapper[pattern](x[1:], n_conditions)[1:]
+    vector = pattern_mapper[x[0]](x[1:], n_conditions)
+    vector[0] = x[2]
+    return vector
 
 class Simulate():
     def __init__(self):
@@ -534,8 +535,8 @@ class Simulate():
             warnings.warn('More patterns than possible specificed, setting to maximum possible: {}'.format(clrm.shape[0]))
             n_patterns = clrm.shape[0]
 
-        for i in range(n_patterns):
-            clrm = clrm.loc[sorted(random.sample(clrm.index.tolist(), k = n_patterns)),]
+        # chose random subset to assign patterns to 
+        clrm = clrm.loc[sorted(random.sample(clrm.index.tolist(), k = n_patterns)),]
         clrm.reset_index(inplace = True, drop = True)
         clrm.LR_subcat = clrm.LR_subcat.apply(lambda x: x[0])
         
@@ -550,11 +551,15 @@ class Simulate():
         ccats = [(ccat_map[ci[0]], ccat_map[ci[1]]) for ci in self.ts_frame.columns]
         
         # get tensor slice coordinates for CC-LR pairs with expected patterns
-        def get_coords(i):
-            coords = list(zip([k for k in range(len(ccats)) if                                          ccats[k] == self.clrm.loc[i, 'cell_subcat']], 
-                                         [k for k in range(len(lrcats)) if lrcats[k] == self.clrm.loc[i, 'LR_subcat']]))
-            return [tuple([i[0] for i in coords]), tuple([i[1] for i in coords])]
-        self.clrm['ts_coordinates'] = pd.Series(self.clrm.index).apply(lambda i: get_coords(i)).tolist()
+        # get tensor slice coordinates for CC-LR pairs with expected patterns
+        def get_coords(x):
+            '''Get the coords for each CC-LR metadata pair'''
+            col_coord = [j for j,cmd in enumerate(ccats) if cmd == x[0]]
+            row_coord = [i for i,lrmd in enumerate(lrcats) if lrmd == x[1]]
+            coords = list(itertools.product(row_coord, col_coord))
+            coords = [tuple(i[0] for i in coords), tuple([i[1] for i in coords])]
+            return coords
+        self.clrm['ts_coordinates'] = self.clrm[['cell_subcat', 'LR_subcat']].apply(lambda x: get_coords(x), axis = 1).tolist()
         
         # initial value
         self.clrm[['0']] = list(np.arange(1/self.n_patterns, 1+1/self.n_patterns, 1/self.n_patterns))
@@ -572,7 +577,7 @@ class Simulate():
 
         # apply patterns to get averages across conditions
         if self.n_conditions > 1:
-            self.clrm[[str(i) for i in range(1,self.n_conditions)]] = self.clrm[['pattern', 'change', '0']].apply(generate_pattern, args = (self.n_conditions,), axis = 1).tolist()
+            self.clrm[[str(i) for i in range(self.n_conditions)]] = self.clrm[['pattern', 'change', '0']].apply(generate_pattern, args = (self.n_conditions,), axis = 1).tolist()
 
     def generate_tensor(self, noise, binary = False):
         '''Generates the tensor.
@@ -594,30 +599,46 @@ class Simulate():
         if not binary:
             binary = False
             warnings.warn('Only continuous scoring is currently implemented')
-        # initialize tensor slices
-        self.ts = {str(i): self.ts_frame.copy() for i in range(self.n_conditions)}
+        
 
-        # generate the background
-        print('Generate background noise')
+        self.ts = dict() # intitialize
+        c_labels = [str(i) for i in range(self.n_conditions)]
         if noise == 0:
-            for i in self.ts:
-                self.ts[i] = self.ts[i].fillna(0)
+            print('0 noise')
+            for cond in c_labels:
+                df = self.ts_frame.copy()
+                for idx in self.clrm.index:
+                    avg_val = self.clrm.loc[idx, cond]
+                    coords = self.clrm.loc[idx, 'ts_coordinates']
+                    df.values[coords] = avg_val # non-backgroun 
+                df.fillna(0, inplace = True) # background
+                self.ts[cond] = df
         else:
-            # background will have largest average = minimum across all conditions
             min_val = self.clrm[[str(i) for i in range(self.n_conditions)]].min().min()
             scale = min_val/np.array([utils.piecewise_fit(min_val, *utils.fit_params)])[0]
-            for i in tqdm(self.ts):
-                vals = utils.get_truncated_normal(n = self.ts[i].shape[0]*self.ts[i].shape[1], 
+            for cond in c_labels:
+                df = self.ts_frame.copy()
+                # background
+                vals = utils.get_truncated_normal(n = self.ts_frame.shape[0]*self.ts_frame.shape[1], 
                                                   sd = noise*min_val, mean = 0)*scale
-                self.ts[i][:] = vals.reshape(self.ts[i].shape)
+                df[:] = vals.reshape(self.ts_frame.shape)
+                for idx in self.clrm.index: # non-background
+                    avg_val = self.clrm.loc[idx, cond]
+                    coords = self.clrm.loc[idx, 'ts_coordinates']
+                    df.values[coords] = utils.get_truncated_normal(n = len(coords[0]), 
+                                                                   sd = noise*avg_val, mean = avg_val)
+                self.ts[cond] = df
 
 
-        for cond in tqdm(self.ts):
-            for i in self.clrm.index:
-                avg_val = self.clrm.loc[i, cond]
-                coords = self.clrm.loc[i, 'ts_coordinates']
-
-                self.ts[cond].values[coords] = avg_val if noise == 0 else                                           utils.get_truncated_normal(n = len(coords[0]), sd = noise*avg_val, mean = avg_val)
+#         for cond in tqdm(self.ts):
+#             for i in self.clrm.index:
+#                 avg_val = self.clrm.loc[i, cond]
+#                 coords = self.clrm.loc[i, 'ts_coordinates']
+                
+#                 if noise == 0:
+#                     self.ts[cond].values[coords] = avg_val
+#                 else:
+#                     self.ts[cond].values[coords] = utils.get_truncated_normal(n = len(coords[0]), sd = noise*avg_val, mean = avg_val)
 
     def reshape(self):
         '''Creates tensor in the format necessary for running with tensor-cell2cell and stores 
@@ -666,21 +687,31 @@ class Simulate():
         return copy.deepcopy(self)
 
 
-# In[18]:
+# In[29]:
 
 
-# generate simulation object
-sim = Simulate() 
-sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
-sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
+# # generate simulation object
+# sim = Simulate() 
+# sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
+# sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
 
-cci = CCI_MD()
-cci.cci_network(n_cells = 15, directional = False)
-cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 1)
+# cci = CCI_MD()
+# cci.cci_network(n_cells = 15, directional = False)
+# cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 1)
 
-sim.cci = cci 
-sim.generate_tensor_md(n_patterns = 4, n_conditions = 5, patterns = ['pulse', 'linear', 'oscillate'])
+# sim.cci = cci 
+# sim.generate_tensor_md(n_patterns = 3, n_conditions = 2, patterns = ['pulse', 'linear', 'oscillate'])
+# sim.generate_tensor(noise = 0, binary = False)
 
+# sim.clrm
+
+# self = sim
+# cond = '0'
+# idx = 0
+# coords = self.clrm.loc[idx, 'ts_coordinates']
+# self.ts[cond].values[coords].mean()
+
+# self.ts[cond].values[coords] [self.ts[cond].values[coords] != self.clrm.loc[idx, cond]]
 
 
 # In[4]:
