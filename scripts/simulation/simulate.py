@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
+# In[1]:
 
 
 import os
@@ -29,7 +29,7 @@ from simulation.graphs import graph_generator as gg_
 from simulation import utils
 
 
-# In[3]:
+# In[2]:
 
 
 def weight_bias(n, skew):
@@ -133,7 +133,7 @@ class LR():
 class CCI_MD():
     '''Generate the CCI network for the tensor slice at time point 0'''
     
-    def cci_network(self, n_cells, directional = True):
+    def cci_network(self, n_cells, directional = True, autocrine = True):
             '''Initialize the cell-cell interaction network.
 
             n_cells: int
@@ -142,7 +142,8 @@ class CCI_MD():
             directional: bool
                 whether cell-cell interactions are directional (tuple of cell (A,B) indicates interaction from A-->B) or 
                 not
-
+            autocrine: bool
+                whether cells can interact with themselves
             '''
             # generate random cell ids
             self.cell_ids = [str(uuid.uuid4()).split('-')[-1] for i in range(n_cells)]
@@ -150,6 +151,9 @@ class CCI_MD():
                 self.cell_interactions = list(itertools.permutations(self.cell_ids, 2))
             else:
                 self.cell_interactions = list(itertools.combinations(self.cell_ids, 2))
+            
+            if autocrine:
+                self.cell_interactions += [(id_, id_) for id_ in self.cell_ids]
     def generate_metadata(self, n_cell_cats = {2: 0}, cat_skew = 0, 
                          remove_homotypic = None):
         '''Generate metadata groupings for the cells (individual). Categories are defined as distinct types of 
@@ -167,7 +171,8 @@ class CCI_MD():
             Skew of distribution of cells across categories
         remove_homotypic: int
             whether to remove homotypic ineractions between cells by cell category; how many categories to consider; 
-            must be <= the number of categories present in the metadata
+            must be <= the number of categories present in the metadata. Recommended to leave as default and 
+            instead toggle consider_homotypic option in Simulate().generate_tensor_md()
 
         '''
         if len(n_cell_cats) > 1:
@@ -264,7 +269,7 @@ class sim_tensor():
         self.rank = self.cell_lr_metadata.shape[0]
 
 
-# In[14]:
+# In[3]:
 
 
 def fold_change_pattern(initial_value):
@@ -463,7 +468,8 @@ class Simulate():
         gg.drop_disconnected_nodes(G2)
         return G2
     
-    def generate_tensor_md(self, n_patterns, n_conditions, patterns = ['pulse', 'linear', 'oscillate']):
+    def generate_tensor_md(self, n_patterns, n_conditions, patterns = ['pulse', 'linear', 'oscillate'], 
+                          consider_homotypic = True):
         '''Generates cell-LR metadata pairs for tensor slices.
         
         Parameters
@@ -477,6 +483,9 @@ class Simulate():
         patterns: list
             list of strings, each of which should be included as a potential pattern for a given cell 
             metadata - LR metadata pair. Options: ['pulse', 'linear', 'exponential', 'oscillate']
+        consider_homotypic: bool
+            whether to allow homotypic interactions to have patterns. If False, homotypic interactions are guaranteed
+            to be a part of the background. 
         
         Returns
         ---------
@@ -519,7 +528,9 @@ class Simulate():
         ccati = list()
         for ci in self.cci.cell_interactions:
             ccati.append((ccat_map[ci[0]], ccat_map[ci[1]]))
-        ccati = pd.Series(ccati).unique()
+        ccati = pd.Series(ccati).unique().tolist()
+        if not consider_homotypic:
+            ccati = [cp for cp in ccati if cp[0] != cp[1]]
 
         # all possible groups of cell metadata - LR metadata pairs
         clrm = pd.DataFrame(columns = ['cell_subcat', 'LR_subcat'])
@@ -547,7 +558,7 @@ class Simulate():
         # sort metadata categories
         ccat_map = dict(zip(self.cci.cell_metadata.cell_id, self.cci.cell_metadata.subcategory))
         LR_map = dict(zip(self.LR.LR_metadata.LR_id, self.LR.LR_metadata.subcategory))
-        lrcats = [LR_map[lri] for lri in self.ts_frame.index]
+        self._lrcats = [LR_map[lri] for lri in self.ts_frame.index]
         ccats = [(ccat_map[ci[0]], ccat_map[ci[1]]) for ci in self.ts_frame.columns]
         
         # get tensor slice coordinates for CC-LR pairs with expected patterns
@@ -555,7 +566,7 @@ class Simulate():
         def get_coords(x):
             '''Get the coords for each CC-LR metadata pair'''
             col_coord = [j for j,cmd in enumerate(ccats) if cmd == x[0]]
-            row_coord = [i for i,lrmd in enumerate(lrcats) if lrmd == x[1]]
+            row_coord = [i for i,lrmd in enumerate(self._lrcats) if lrmd == x[1]]
             coords = list(itertools.product(row_coord, col_coord))
             coords = [tuple(i[0] for i in coords), tuple([i[1] for i in coords])]
             return coords
@@ -579,7 +590,7 @@ class Simulate():
         if self.n_conditions > 1:
             self.clrm[[str(i) for i in range(self.n_conditions)]] = self.clrm[['pattern', 'change', '0']].apply(generate_pattern, args = (self.n_conditions,), axis = 1).tolist()
 
-    def generate_tensor(self, noise, binary = False):
+    def generate_tensor(self, noise, binary = False, bulk = False):
         '''Generates the tensor.
         
         Parameters
@@ -589,6 +600,8 @@ class Simulate():
         binary: bool
             whether to have scores be continuous b/w [0,1] (False) or binary (True). Binary scoring not currently 
             implemented and must be set to False
+        bulk: bool
+            whether single-cells should be simulated (False) or cells should be grouped into metadata category (True)
         
         Returns
         ---------
@@ -603,8 +616,26 @@ class Simulate():
 
         self.ts = dict() # intitialize
         c_labels = [str(i) for i in range(self.n_conditions)]
+        
+        if bulk: # consolidate cells into the metadata category
+            ccat_map = dict(zip(self.cci.cell_metadata.cell_id, self.cci.cell_metadata.subcategory))
+            ccat_map = {cpi: (ccat_map[cpi[0]], ccat_map[cpi[1]]) for cpi in self.ts_frame.columns}
+
+            # change matrix to just include cell metadata groupings rather than individual cell IDs
+            self.ts_frame = pd.DataFrame(index = self.ts_frame.index, columns = sorted(set(ccat_map.values())))
+
+
+            # rewrite coordinates according to bulk groupings
+            def get_coords(x):
+                '''Get the coords for each CC-LR metadata pair'''
+                col_coord = [j for j,cmd in enumerate(self.ts_frame.columns.tolist()) if cmd == x[0]]
+                row_coord = [i for i,lrmd in enumerate(self._lrcats) if lrmd == x[1]]
+                coords = list(itertools.product(row_coord, col_coord))
+                coords = [tuple(i[0] for i in coords), tuple([i[1] for i in coords])]
+                return coords
+            self.clrm['ts_coordinates'] = self.clrm[['cell_subcat', 'LR_subcat']].apply(lambda x: get_coords(x), axis = 1).tolist()
+
         if noise == 0:
-            print('0 noise')
             for cond in c_labels:
                 df = self.ts_frame.copy()
                 for idx in self.clrm.index:
@@ -629,17 +660,6 @@ class Simulate():
                                                                    sd = noise*avg_val, mean = avg_val)
                 self.ts[cond] = df
 
-
-#         for cond in tqdm(self.ts):
-#             for i in self.clrm.index:
-#                 avg_val = self.clrm.loc[i, cond]
-#                 coords = self.clrm.loc[i, 'ts_coordinates']
-                
-#                 if noise == 0:
-#                     self.ts[cond].values[coords] = avg_val
-#                 else:
-#                     self.ts[cond].values[coords] = utils.get_truncated_normal(n = len(coords[0]), sd = noise*avg_val, mean = avg_val)
-
     def reshape(self):
         '''Creates tensor in the format necessary for running with tensor-cell2cell and stores 
         as a sim_tensor object under self.sim_tensor
@@ -649,8 +669,8 @@ class Simulate():
         - 3D tensor: each slice is a communication matrix, the full tensor is all slices for all LR pairs
         - final tensor: each slice is the 3D tensor, the full tensor is all slices for all conditions
         '''
-        senders = sorted(set([i[0] for i in self.cci.cell_interactions]))
-        receivers = sorted(set([i[1] for i in self.cci.cell_interactions]))
+        senders = sorted(set([i[0] for i in self.ts_frame.columns]))
+        receivers = sorted(set([i[1] for i in self.ts_frame.columns]))
 
 
         # map CC coordinates in CC-LR matrix to .iloc coordinates for fast filling of "communication" matrix
@@ -687,34 +707,7 @@ class Simulate():
         return copy.deepcopy(self)
 
 
-# In[29]:
-
-
-# # generate simulation object
-# sim = Simulate() 
-# sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
-# sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
-
-# cci = CCI_MD()
-# cci.cci_network(n_cells = 15, directional = False)
-# cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 1)
-
-# sim.cci = cci 
-# sim.generate_tensor_md(n_patterns = 3, n_conditions = 2, patterns = ['pulse', 'linear', 'oscillate'])
-# sim.generate_tensor(noise = 0, binary = False)
-
-# sim.clrm
-
-# self = sim
-# cond = '0'
-# idx = 0
-# coords = self.clrm.loc[idx, 'ts_coordinates']
-# self.ts[cond].values[coords].mean()
-
-# self.ts[cond].values[coords] [self.ts[cond].values[coords] != self.clrm.loc[idx, cond]]
-
-
-# In[4]:
+# In[9]:
 
 
 # # init
@@ -722,7 +715,7 @@ class Simulate():
 # # sim_norm = Simulate()
 
 # # simulate a scale_free randomly connected ligand-receptor network (potential interactions)
-# sim.LR_network(network_type = 'scale-free', **{'nodes': 1000, 'degrees': 3, 'alpha': 2}) #scale-free
+# sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
 
 # # # simulate a ranodmly connected network with nomral distributions
 # # sim_norm.LR_network(network_type = 'normal', **{'n_ligands': 500, 'n_receptors': 500, 'p': 0.5}) # normally distributed
@@ -731,23 +724,74 @@ class Simulate():
 # # LR metadata
 # sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
 
-# # generate cell metadata, accounting for directionality (senders vs receivers)
+# # generate cell metadata, accounting for directionality (senders vs receivers) and 
+# # allowing for autocrine interactions 
 # cci = CCI_MD()
-# cci.cci_network(n_cells = 50, directional = True)
+# cci.cci_network(n_cells = 50, directional = True, autocrine = True)
 
 # # generate 1 metadata categories, with 3 subcategories and 0 skew, the overall skew of categories is 0
-# # do not remove homotypic interactions
+# # do not remove homotypic interactions (will be included)
 # cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 0)
 # # add cell metadata to simulation object
 # sim.cci = cci
 
 # # generate n_patter metadata groups of CC-LR pairs that change across n_conditions
-# # these changes can either be linear, oscillating, or a pulse
-# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate'])
+# # these changes can either be linear, oscillating, or a pulse; allow homotypic interactions to form patterns
+# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate'], 
+#                       consider_homotypic = True)
 
-# #generate a tensor with continuous LR scores and no noise
-# sim.generate_tensor(noise = 0, binary = False)
+# #generate a tensor with continuous LR scores and no noise; keep single-cells 
+# sim.generate_tensor(noise = 0, binary = False, bulk = False)
 
 # # format the tensor to be input to tensor-cell2cell
 # sim.reshape()
+
+
+# In[23]:
+
+
+# # init
+# sim = Simulate() 
+# # sim_norm = Simulate()
+
+# # simulate a scale_free randomly connected ligand-receptor network (potential interactions)
+# sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
+
+# # # simulate a ranodmly connected network with nomral distributions
+# # sim_norm.LR_network(network_type = 'normal', **{'n_ligands': 500, 'n_receptors': 500, 'p': 0.5}) # normally distributed
+
+
+# # LR metadata
+# sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
+
+# # generate cell metadata, accounting for directionality (senders vs receivers) and 
+# # allowing for autocrine interactions 
+# cci = CCI_MD()
+# cci.cci_network(n_cells = 50, directional = True, autocrine = True)
+
+# # generate 1 metadata categories, with 3 subcategories and 0 skew, the overall skew of categories is 0
+# # do not remove homotypic interactions (will be included)
+# cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 0)
+# # add cell metadata to simulation object
+# sim.cci = cci
+
+# # generate n_patter metadata groups of CC-LR pairs that change across n_conditions
+# # these changes can either be linear, oscillating, or a pulse; allow homotypic interactions to form patterns
+# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate'], 
+#                       consider_homotypic = True)
+
+# #generate a tensor with continuous LR scores and no noise; keep single-cells 
+# sim.generate_tensor(noise = 0, binary = False, bulk = True)
+
+# # format the tensor to be input to tensor-cell2cell
+# sim.reshape()
+
+
+# import pickle
+# if not os.path.isdir('tmp_sim_forerick'):
+#     os.mkdir('tmp_sim_forerick')
+# for k,v in sim.sim_tensor.__dict__.items():
+#     if k != 'rank':
+#         with open('tmp_sim_forerick/' + k + '.pickle','wb') as f:
+#             pickle.dump(v, f, protocol=pickle.HIGHEST_PROTOCOL)
 
