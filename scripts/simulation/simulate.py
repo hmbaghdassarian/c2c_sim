@@ -269,22 +269,26 @@ class sim_tensor():
         self.rank = self.cell_lr_metadata.shape[0]
 
 
-# In[3]:
+# In[8]:
 
 
-def fold_change_pattern(initial_value):
+def fold_change_pattern(initial_value, score_change = 'max'):
     '''The maximum change in the average LR score given the starting value'''
     decrease = False
     if initial_value > 0.5:
         initial_value = 0.5 - (initial_value - 0.5)
         decrease = True
     
-    if initial_value >= 0.2:
-        change = 2*initial_value
+    if score_change == 'max':
+        change = 1 - initial_value
+    elif score_change == 'scale':
+        if initial_value >= 0.2:
+            change = 2*initial_value
+        else:
+            change = initial_value + 0.2
+        change = change - initial_value
     else:
-        change = initial_value + 0.2
-    
-    change = change - initial_value
+        raise ValueError('Argument score_change can only be "scale" or "max"')
     
     if decrease:
         change = - change
@@ -293,6 +297,29 @@ def fold_change_pattern(initial_value):
 
 def linear(x, n_conditions):
     return list(np.linspace(x[1], x[1] + x[0], n_conditions))
+
+def fit_increasing_power(x,adj1,adj2,pw):
+    return ((x+adj1) ** pw) * adj2
+
+def power(x, n_conditions):
+    change, initial_val = x[0], x[1]
+    if change > 0: 
+        # https://stackoverflow.com/questions/33186740/fitting-exponential-function-through-two-data-points-with-scipy-curve-fit
+        p1 = [1, n_conditions] 
+        p2 = [initial_val, initial_val + change]
+
+        pw = 0.2
+        A = np.exp(np.log(p2[0]/p2[1])/pw)
+        a = (p1[0] - p1[1]*A)/(A-1)
+        b = p2[0]/(p1[0]+a)**pw
+        xf=np.linspace(1,n_conditions, n_conditions)
+        vector = fit_increasing_power(xf, a, b, pw)
+    else:
+        if initial_val + change == 0:
+            vector = np.geomspace(initial_val, initial_val + change + 1e-9, num=n_conditions)
+        else:
+            vector = np.geomspace(initial_val, initial_val + change, num=n_conditions)
+    return vector
 
 def pulse(x, n_conditions):
     change = x[0]
@@ -331,7 +358,8 @@ def oscillate(x, n_conditions):
     else:
         return pulse(x, n_conditions)
 
-pattern_mapper = {'linear': linear, 'pulse': pulse, 'oscillate': oscillate}
+pattern_mapper = {'linear': linear, 'pulse': pulse, 'oscillate': oscillate, 
+                 'power': power}
 
 def generate_pattern(x, n_conditions):
     vector = pattern_mapper[x[0]](x[1:], n_conditions)
@@ -468,8 +496,8 @@ class Simulate():
         gg.drop_disconnected_nodes(G2)
         return G2
     
-    def generate_tensor_md(self, n_patterns, n_conditions, patterns = ['pulse', 'linear', 'oscillate'], 
-                          consider_homotypic = True):
+    def generate_tensor_md(self, n_patterns, n_conditions, patterns = ['pulse', 'linear', 'oscillate', 'power'], 
+                          consider_homotypic = True, score_change = 'max'):
         '''Generates cell-LR metadata pairs for tensor slices.
         
         Parameters
@@ -482,10 +510,13 @@ class Simulate():
             the number of conditions across which to generate tensor slices 
         patterns: list
             list of strings, each of which should be included as a potential pattern for a given cell 
-            metadata - LR metadata pair. Options: ['pulse', 'linear', 'exponential', 'oscillate']
+            metadata - LR metadata pair. Options: ['pulse', 'linear', 'power', 'oscillate']
         consider_homotypic: bool
             whether to allow homotypic interactions to have patterns. If False, homotypic interactions are guaranteed
             to be a part of the background. 
+        score_change: str
+            one of ['max', 'scale']. max will make the change in scores as large as possible, scale will scale 
+            the change relative to the distance of the comunication from 0.5 at condition '0'
         
         Returns
         ---------
@@ -494,7 +525,7 @@ class Simulate():
             alongside the expected average score for each condition
         '''
         #checks------------------------------------------------------------------------------------------------
-        allowed_patterns = ['pulse', 'linear', 'oscillate']
+        allowed_patterns = ['pulse', 'linear', 'oscillate', 'power']
         if patterns is not None:
             if len(set(patterns).difference(allowed_patterns)) > 0:
                 raise ValueError('Patterns can only include: ' + ', '.join(allowed_patterns))
@@ -584,7 +615,7 @@ class Simulate():
 
         self.clrm = pd.concat([self.clrm,
                   pd.DataFrame(index = self.clrm.index, columns = [str(i) for i in range(1,self.n_conditions)])], axis = 1)
-        self.clrm.insert(3, 'change', self.clrm['0'].apply(lambda x: fold_change_pattern(x)))
+        self.clrm.insert(3, 'change', self.clrm['0'].apply(fold_change_pattern, args = (score_change,)))
 
         # apply patterns to get averages across conditions
         if self.n_conditions > 1:
@@ -707,7 +738,7 @@ class Simulate():
         return copy.deepcopy(self)
 
 
-# In[9]:
+# In[6]:
 
 
 # # init
@@ -737,48 +768,9 @@ class Simulate():
 
 # # generate n_patter metadata groups of CC-LR pairs that change across n_conditions
 # # these changes can either be linear, oscillating, or a pulse; allow homotypic interactions to form patterns
-# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate'], 
-#                       consider_homotypic = True)
-
-# #generate a tensor with continuous LR scores and no noise; keep single-cells 
-# sim.generate_tensor(noise = 0, binary = False, bulk = False)
-
-# # format the tensor to be input to tensor-cell2cell
-# sim.reshape()
-
-
-# In[23]:
-
-
-# # init
-# sim = Simulate() 
-# # sim_norm = Simulate()
-
-# # simulate a scale_free randomly connected ligand-receptor network (potential interactions)
-# sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
-
-# # # simulate a ranodmly connected network with nomral distributions
-# # sim_norm.LR_network(network_type = 'normal', **{'n_ligands': 500, 'n_receptors': 500, 'p': 0.5}) # normally distributed
-
-
-# # LR metadata
-# sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
-
-# # generate cell metadata, accounting for directionality (senders vs receivers) and 
-# # allowing for autocrine interactions 
-# cci = CCI_MD()
-# cci.cci_network(n_cells = 50, directional = True, autocrine = True)
-
-# # generate 1 metadata categories, with 3 subcategories and 0 skew, the overall skew of categories is 0
-# # do not remove homotypic interactions (will be included)
-# cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 0)
-# # add cell metadata to simulation object
-# sim.cci = cci
-
-# # generate n_patter metadata groups of CC-LR pairs that change across n_conditions
-# # these changes can either be linear, oscillating, or a pulse; allow homotypic interactions to form patterns
-# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate'], 
-#                       consider_homotypic = True)
+# # maximize the possible change in communication score
+# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate', 'power'], 
+#                       consider_homotypic = True, score_change = 'max')
 
 # #generate a tensor with continuous LR scores and no noise; keep single-cells 
 # sim.generate_tensor(noise = 0, binary = False, bulk = True)
@@ -787,11 +779,55 @@ class Simulate():
 # sim.reshape()
 
 
+# # Explore
+
+# In[ ]:
+
+
+# # init
+# sim = Simulate() 
+# # sim_norm = Simulate()
+
+# # simulate a scale_free randomly connected ligand-receptor network (potential interactions)
+# sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
+
+# # # simulate a ranodmly connected network with nomral distributions
+# # sim_norm.LR_network(network_type = 'normal', **{'n_ligands': 500, 'n_receptors': 500, 'p': 0.5}) # normally distributed
+
+
+# # LR metadata
+# sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
+
+# # generate cell metadata, accounting for directionality (senders vs receivers) and 
+# # allowing for autocrine interactions 
+# cci = CCI_MD()
+# cci.cci_network(n_cells = 50, directional = True, autocrine = True)
+
+# # generate 1 metadata categories, with 3 subcategories and 0 skew, the overall skew of categories is 0
+# # do not remove homotypic interactions (will be included)
+# cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 0)
+# # add cell metadata to simulation object
+# sim.cci = cci
+
+# # generate n_patter metadata groups of CC-LR pairs that change across n_conditions
+# # these changes can either be linear, oscillating, or a pulse; allow homotypic interactions to form patterns
+# # maximize the possible change in communication score
+# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate'], 
+#                       consider_homotypic = True, score_change = 'max')
+
+# #generate a tensor with continuous LR scores and no noise; keep single-cells 
+# sim.generate_tensor(noise = 0, binary = False, bulk = True)
+
+# # format the tensor to be input to tensor-cell2cell
+# sim.reshape()
+
+
+# dir_nam = 'tmp_maxscore/'
 # import pickle
-# if not os.path.isdir('tmp_sim_forerick'):
-#     os.mkdir('tmp_sim_forerick')
+# if not os.path.isdir(dir_nam):
+#     os.mkdir(dir_nam)
 # for k,v in sim.sim_tensor.__dict__.items():
 #     if k != 'rank':
-#         with open('tmp_sim_forerick/' + k + '.pickle','wb') as f:
+#         with open(dir_nam + k + '.pickle','wb') as f:
 #             pickle.dump(v, f, protocol=pickle.HIGHEST_PROTOCOL)
 
