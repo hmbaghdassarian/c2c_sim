@@ -7,6 +7,7 @@
 import os
 import warnings
 import copy
+import pickle
 
 import uuid
 import random
@@ -744,6 +745,18 @@ class Simulate():
                                      cell_lr_metadata = self.clrm.drop(columns=['ts_coordinates']))
     def copy(self):
         return copy.deepcopy(self)
+    
+    def pickle(self, filename):
+        '''Store Simulate() object as a pickled file. 
+        
+        Parameters
+        ----------
+        filename: str
+            full/path/to/filename.pickle
+        '''
+        
+        with open(filename, 'wb') as f:
+            pickle.dump(self, f)
 
 
 # In[52]:
