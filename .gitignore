@@ -5,4 +5,5 @@ cell2cell/
 .Rhistory
 **/*.ipynb_checkpoints
 NK_dir/*
-**/*.h5ad
+**/*.h5a
+**/*__pycache__/*
