@@ -7,3 +7,5 @@ cell2cell/
 NK_dir/*
 **/*.h5a
 **/*__pycache__/*
+**/*.pickle
+**/*.svg
