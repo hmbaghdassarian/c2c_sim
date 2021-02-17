@@ -269,7 +269,7 @@ class sim_tensor():
         self.rank = self.cell_lr_metadata.shape[0]
 
 
-# In[8]:
+# In[51]:
 
 
 def fold_change_pattern(initial_value, score_change = 'max'):
@@ -621,7 +621,7 @@ class Simulate():
         if self.n_conditions > 1:
             self.clrm[[str(i) for i in range(self.n_conditions)]] = self.clrm[['pattern', 'change', '0']].apply(generate_pattern, args = (self.n_conditions,), axis = 1).tolist()
 
-    def generate_tensor(self, noise, binary = False, bulk = False):
+    def generate_tensor(self, noise, binary = False, bulk = False, noise_max = 0.1):
         '''Generates the tensor.
         
         Parameters
@@ -633,6 +633,9 @@ class Simulate():
             implemented and must be set to False
         bulk: bool
             whether single-cells should be simulated (False) or cells should be grouped into metadata category (True)
+        noise_max: float [0,1]
+            the maximum average value of the background noise (@ noise = 1). If None, defaults to the minimum
+            average communication score value at condition '0'
         
         Returns
         ---------
@@ -643,6 +646,8 @@ class Simulate():
         if not binary:
             binary = False
             warnings.warn('Only continuous scoring is currently implemented')
+        if noise > 0 and (noise_max == 0):
+            raise ValueError('Noise set to > 0, yet maximum noise is specified at 0. Specify a value larger than 0 or None')
         
 
         self.ts = dict() # intitialize
@@ -676,16 +681,19 @@ class Simulate():
                 df.fillna(0, inplace = True) # background
                 self.ts[cond] = df
         else:
-            min_val = self.clrm[[str(i) for i in range(self.n_conditions)]].min().min()
-            scale = min_val/np.array([utils.piecewise_fit(min_val, *utils.fit_params)])[0]
+            if noise_max is None:
+                noise_max = self.clrm['0'].min()
+            scale = noise_max/np.array([utils.piecewise_fit(noise_max, *utils.fit_params)])[0]
             for cond in c_labels:
                 df = self.ts_frame.copy()
                 # background
                 vals = utils.get_truncated_normal(n = self.ts_frame.shape[0]*self.ts_frame.shape[1], 
-                                                  sd = noise*min_val, mean = 0)*scale
+                                                  sd = noise*noise_max, mean = 0)*scale
                 df[:] = vals.reshape(self.ts_frame.shape)
                 for idx in self.clrm.index: # non-background
                     avg_val = self.clrm.loc[idx, cond]
+                    if avg_val == 0:
+                        avg_val = 1e-9
                     coords = self.clrm.loc[idx, 'ts_coordinates']
                     df.values[coords] = utils.get_truncated_normal(n = len(coords[0]), 
                                                                    sd = noise*avg_val, mean = avg_val)
@@ -738,7 +746,7 @@ class Simulate():
         return copy.deepcopy(self)
 
 
-# In[6]:
+# In[52]:
 
 
 # # init
@@ -772,62 +780,11 @@ class Simulate():
 # sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate', 'power'], 
 #                       consider_homotypic = True, score_change = 'max')
 
-# #generate a tensor with continuous LR scores and no noise; keep single-cells 
-# sim.generate_tensor(noise = 0, binary = False, bulk = True)
+# #generate a tensor with continuous LR scores and baseline noise; keep single-cells 
+# # scale maximum noise s.t. at noise = 1, the average background noise is 0.2
+
+# sim.generate_tensor(noise = 0.1, binary = False, bulk = True, noise_max = 0.2)
 
 # # format the tensor to be input to tensor-cell2cell
 # sim.reshape()
-
-
-# # Explore
-
-# In[ ]:
-
-
-# # init
-# sim = Simulate() 
-# # sim_norm = Simulate()
-
-# # simulate a scale_free randomly connected ligand-receptor network (potential interactions)
-# sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
-
-# # # simulate a ranodmly connected network with nomral distributions
-# # sim_norm.LR_network(network_type = 'normal', **{'n_ligands': 500, 'n_receptors': 500, 'p': 0.5}) # normally distributed
-
-
-# # LR metadata
-# sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
-
-# # generate cell metadata, accounting for directionality (senders vs receivers) and 
-# # allowing for autocrine interactions 
-# cci = CCI_MD()
-# cci.cci_network(n_cells = 50, directional = True, autocrine = True)
-
-# # generate 1 metadata categories, with 3 subcategories and 0 skew, the overall skew of categories is 0
-# # do not remove homotypic interactions (will be included)
-# cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 0)
-# # add cell metadata to simulation object
-# sim.cci = cci
-
-# # generate n_patter metadata groups of CC-LR pairs that change across n_conditions
-# # these changes can either be linear, oscillating, or a pulse; allow homotypic interactions to form patterns
-# # maximize the possible change in communication score
-# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate'], 
-#                       consider_homotypic = True, score_change = 'max')
-
-# #generate a tensor with continuous LR scores and no noise; keep single-cells 
-# sim.generate_tensor(noise = 0, binary = False, bulk = True)
-
-# # format the tensor to be input to tensor-cell2cell
-# sim.reshape()
-
-
-# dir_nam = 'tmp_maxscore/'
-# import pickle
-# if not os.path.isdir(dir_nam):
-#     os.mkdir(dir_nam)
-# for k,v in sim.sim_tensor.__dict__.items():
-#     if k != 'rank':
-#         with open(dir_nam + k + '.pickle','wb') as f:
-#             pickle.dump(v, f, protocol=pickle.HIGHEST_PROTOCOL)
 
