@@ -373,6 +373,7 @@ class Simulate():
 
         '''
         self.cci = None
+        self._convert_bulk = None
     
     def LR_network(self, network_type = None, B = None, subset = False, **params):
         '''
@@ -655,22 +656,26 @@ class Simulate():
         c_labels = [str(i) for i in range(self.n_conditions)]
         
         if bulk: # consolidate cells into the metadata category
-            ccat_map = dict(zip(self.cci.cell_metadata.cell_id, self.cci.cell_metadata.subcategory))
-            ccat_map = {cpi: (ccat_map[cpi[0]], ccat_map[cpi[1]]) for cpi in self.ts_frame.columns}
+            if self._convert_bulk is None: 
+                ccat_map = dict(zip(self.cci.cell_metadata.cell_id, self.cci.cell_metadata.subcategory))
+                ccat_map = {cpi: (ccat_map[cpi[0]], ccat_map[cpi[1]]) for cpi in self.ts_frame.columns}
 
-            # change matrix to just include cell metadata groupings rather than individual cell IDs
-            self.ts_frame = pd.DataFrame(index = self.ts_frame.index, columns = sorted(set(ccat_map.values())))
+                # change matrix to just include cell metadata groupings rather than individual cell IDs
+                self.ts_frame = pd.DataFrame(index = self.ts_frame.index, columns = sorted(set(ccat_map.values())))
 
 
-            # rewrite coordinates according to bulk groupings
-            def get_coords(x):
-                '''Get the coords for each CC-LR metadata pair'''
-                col_coord = [j for j,cmd in enumerate(self.ts_frame.columns.tolist()) if cmd == x[0]]
-                row_coord = [i for i,lrmd in enumerate(self._lrcats) if lrmd == x[1]]
-                coords = list(itertools.product(row_coord, col_coord))
-                coords = [tuple(i[0] for i in coords), tuple([i[1] for i in coords])]
-                return coords
-            self.clrm['ts_coordinates'] = self.clrm[['cell_subcat', 'LR_subcat']].apply(lambda x: get_coords(x), axis = 1).tolist()
+                # rewrite coordinates according to bulk groupings
+                def get_coords(x):
+                    '''Get the coords for each CC-LR metadata pair'''
+                    col_coord = [j for j,cmd in enumerate(self.ts_frame.columns.tolist()) if cmd == x[0]]
+                    row_coord = [i for i,lrmd in enumerate(self._lrcats) if lrmd == x[1]]
+                    coords = list(itertools.product(row_coord, col_coord))
+                    coords = [tuple(i[0] for i in coords), tuple([i[1] for i in coords])]
+                    return coords
+                self.clrm['ts_coordinates'] = self.clrm[['cell_subcat', 'LR_subcat']].apply(lambda x: get_coords(x), axis = 1).tolist()
+                self._convert_bulk = True
+                # _convert_bulk records if .generate_tensor() method with bulk = True being run for first time
+                # allows .generate_tensor() method to be run multiple times (e.g., to test different levels of noise)
 
         if noise == 0:
             for cond in c_labels:
@@ -757,47 +762,3 @@ class Simulate():
         
         with open(filename, 'wb') as f:
             pickle.dump(self, f)
-
-
-# In[52]:
-
-
-# # init
-# sim = Simulate() 
-# # sim_norm = Simulate()
-
-# # simulate a scale_free randomly connected ligand-receptor network (potential interactions)
-# sim.LR_network(network_type = 'scale-free', **{'nodes': 100, 'degrees': 3, 'alpha': 2}) #scale-free
-
-# # # simulate a ranodmly connected network with nomral distributions
-# # sim_norm.LR_network(network_type = 'normal', **{'n_ligands': 500, 'n_receptors': 500, 'p': 0.5}) # normally distributed
-
-
-# # LR metadata
-# sim.LR.generate_metadata(n_LR_cats = {3: 0}, cat_skew = 0)
-
-# # generate cell metadata, accounting for directionality (senders vs receivers) and 
-# # allowing for autocrine interactions 
-# cci = CCI_MD()
-# cci.cci_network(n_cells = 50, directional = True, autocrine = True)
-
-# # generate 1 metadata categories, with 3 subcategories and 0 skew, the overall skew of categories is 0
-# # do not remove homotypic interactions (will be included)
-# cci.generate_metadata(n_cell_cats = {3: 0}, cat_skew = 0, remove_homotypic = 0)
-# # add cell metadata to simulation object
-# sim.cci = cci
-
-# # generate n_patter metadata groups of CC-LR pairs that change across n_conditions
-# # these changes can either be linear, oscillating, or a pulse; allow homotypic interactions to form patterns
-# # maximize the possible change in communication score
-# sim.generate_tensor_md(n_patterns = 4, n_conditions = 12, patterns = ['pulse', 'linear', 'oscillate', 'power'], 
-#                       consider_homotypic = True, score_change = 'max')
-
-# #generate a tensor with continuous LR scores and baseline noise; keep single-cells 
-# # scale maximum noise s.t. at noise = 1, the average background noise is 0.2
-
-# sim.generate_tensor(noise = 0.1, binary = False, bulk = True, noise_max = 0.2)
-
-# # format the tensor to be input to tensor-cell2cell
-# sim.reshape()
-
