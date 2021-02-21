@@ -34,10 +34,6 @@ path_ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__), '.
 import sys
 sys.path.insert(1, path_)
 
-# ## notebook version
-# import sys
-# sys.path.insert(1, '../../../c2c_sim/')
-
 from core.graphs import graph_generator as gg_
 from core import utils
 
@@ -128,7 +124,7 @@ class LR():
         # group each LR into the categories above
         # generate categories
         LR_categories = [str(uuid.uuid4()).split('-')[-1] for i in range(len(n_LR_cats))]
-        cat_bias = weight_bias(n = len(LR_categories), skew = 0)
+        cat_bias = weight_bias(n = len(LR_categories), skew = cat_skew)
         self.LR_metadata = pd.DataFrame(data = {'LR_id': self.edge_list, 
                         'category': random.choices(population = LR_categories, weights=cat_bias, 
                                                   k=len(self.edge_list))})
@@ -159,14 +155,14 @@ class CCI_MD():
                 whether cells can interact with themselves
             '''
             # generate random cell ids
-            self.cell_ids = [str(uuid.uuid4()).split('-')[-1] for i in range(n_cells)]
+            self._cell_ids = [str(uuid.uuid4()).split('-')[-1] for i in range(n_cells)]
             if directional:
-                self.cell_interactions = list(itertools.permutations(self.cell_ids, 2))
+                self.cell_interactions = list(itertools.permutations(self._cell_ids, 2))
             else:
-                self.cell_interactions = list(itertools.combinations(self.cell_ids, 2))
+                self.cell_interactions = list(itertools.combinations(self._cell_ids, 2))
             
             if autocrine:
-                self.cell_interactions += [(id_, id_) for id_ in self.cell_ids]
+                self.cell_interactions += [(id_, id_) for id_ in self._cell_ids]
     def generate_metadata(self, n_cell_cats = {2: 0}, cat_skew = 0, 
                          remove_homotypic = None):
         '''Generate metadata groupings for the cells (individual). Categories are defined as distinct types of 
@@ -196,10 +192,10 @@ class CCI_MD():
         # group each cell into the categories above
         # generate categories
         cell_categories = [str(uuid.uuid4()).split('-')[-1] for i in range(len(n_cell_cats))]
-        cat_bias = weight_bias(n = len(cell_categories), skew = 0)
-        self.cell_ids = pd.DataFrame(data = {'cell_id': self.cell_ids, 
+        cat_bias = weight_bias(n = len(cell_categories), skew = cat_skew)
+        self.cell_ids = pd.DataFrame(data = {'cell_id': self._cell_ids, 
                         'category': random.choices(population = cell_categories, weights=cat_bias, 
-                                                  k=len(self.cell_ids))})
+                                                  k=len(self._cell_ids))})
         
         # generate subcategories
         self.cell_ids['subcategory'] = float('nan')
@@ -282,7 +278,7 @@ class sim_tensor():
         self.rank = self.cell_lr_metadata.shape[0]
 
 
-# In[60]:
+# In[ ]:
 
 
 def fold_change_pattern(initial_value, score_change = 'max'):
@@ -516,11 +512,11 @@ class Simulate():
         
         Parameters
         ----------
-        n_patterns: int (> 0)
+        n_patterns: int (>0)
             the number of CC - LR metadata pairs for which to form distinct interactions 
-            the remaining backgroun will default to 0, with noise increasing this value
+            the remaining background will default to 0, with noise increasing this value
             the groups with distinct interactions will each have distinct average values spaced b/w (0,1]
-        n_conditions: int (>2)
+        n_conditions: int (>=0)
             the number of conditions across which to generate tensor slices 
         patterns: list
             list of strings, each of which should be included as a potential pattern for a given cell 
@@ -635,7 +631,7 @@ class Simulate():
         if self.n_conditions > 1:
             self.clrm[[str(i) for i in range(self.n_conditions)]] = self.clrm[['pattern', 'change', '0']].apply(generate_pattern, args = (self.n_conditions,), axis = 1).tolist()
 
-    def generate_tensor(self, noise, binary = False, bulk = False, noise_max = 0.1):
+    def generate_tensor(self, noise, binary = False, bulk = False, noise_max = None):
         '''Generates the tensor.
         
         Parameters
@@ -649,7 +645,7 @@ class Simulate():
             whether single-cells should be simulated (False) or cells should be grouped into metadata category (True)
         noise_max: float [0,1]
             the maximum average value of the background noise (@ noise = 1). If None, defaults to the minimum
-            average communication score value at condition '0'
+            average communication score value at condition '0'. Will likely fail at values > 0.1. 
         
         Returns
         ---------
@@ -695,7 +691,7 @@ class Simulate():
                 for idx in self.clrm.index:
                     avg_val = self.clrm.loc[idx, cond]
                     coords = self.clrm.loc[idx, 'ts_coordinates']
-                    df.values[coords] = avg_val # non-backgroun 
+                    df.values[coords] = avg_val # non-background 
                 df.fillna(0, inplace = True) # background
                 self.ts[cond] = df
         else:
@@ -707,14 +703,25 @@ class Simulate():
                 # background
                 vals = utils.get_truncated_normal(n = self.ts_frame.shape[0]*self.ts_frame.shape[1], 
                                                   sd = noise*noise_max, mean = 0)*scale
+                vals[vals>1] = 1
                 df[:] = vals.reshape(self.ts_frame.shape)
                 for idx in self.clrm.index: # non-background
+                    vc = self.clrm.loc[idx,c_labels]
+                    min_val = vc.min()
                     avg_val = self.clrm.loc[idx, cond]
-                    if avg_val == 0:
-                        avg_val = 1e-9
                     coords = self.clrm.loc[idx, 'ts_coordinates']
-                    df.values[coords] = utils.get_truncated_normal(n = len(coords[0]), 
-                                                                   sd = noise*avg_val, mean = avg_val)
+                    
+                    # boundaries generated like background
+                    if min_val == 0 and abs(min_val - avg_val) < 1e-3:
+                        noise_max_ = vc[vc>0].min()
+                        scale_ = noise_max_/np.array([utils.piecewise_fit(noise_max_, *utils.fit_params)])[0]
+                        vals = utils.get_truncated_normal(n = len(coords[0]), 
+                                                  sd = noise*noise_max_, mean = 0)*scale_
+                        vals[vals>1] = 1
+                    else: # sd function of the average value
+                        vals = utils.get_truncated_normal(n = len(coords[0]), 
+                                                                   sd = noise*avg_val*1.1, mean = avg_val)
+                    df.values[coords] = vals
                 self.ts[cond] = df
 
     def reshape(self):
@@ -783,7 +790,7 @@ class Simulate():
         return background_coords
     
     def visualize(self, subset = None, include_background = True, background_coords = None, 
-                 file_name = None):
+                 file_name = None, colors = None):
         '''Generate lineplot of communication score across conditions for each pattern
         Parameters
         ----------
@@ -797,6 +804,8 @@ class Simulate():
             Formatted to allow easy subsetting of numpy matrix
         file_name: str
             File name to save figure. "full/path/to/filename.ext". If None, will not save
+        colors: list
+            Length = n_patterns. Each element is a color to assign to one of patterns. 
         
         '''
         if include_background and background_coords is None:
@@ -819,32 +828,38 @@ class Simulate():
 
         res_all.reset_index(inplace = True, drop = True)
         res_all['score'] = res_all['score'].astype(float)
-        
+
         if subset is not None:
             res_all = res_all.loc[random.sample(res_all.index.tolist(), k = round(subset*res_all.shape[0])),]
             res_all.reset_index(inplace = True, drop = True)
 
         cats = res_all.cat.unique().tolist()
+
         if include_background:
             cats.remove('background')
         cat_ordering = [str(int(j)) for j in sorted([int(i) for i in cats])]
         if include_background:
-            cats = ['background'] + cats
+            cat_ordering = ['background'] + cat_ordering
         res_all["cat"] = pd.Categorical(res_all["cat"], categories=cat_ordering) 
 
         cond_ordering = [str(int(j)) for j in sorted([int(i) for i in res_all.condition.unique()])]
         res_all["condition"] = pd.Categorical(res_all["condition"], categories=cond_ordering) 
-        
+
         print('Generate graph')
-        colors = sns.color_palette("tab10")[:len(res_all.cat.unique())]
+        if colors is None:
+            if len(cats) > 10:
+                raise ValueError('You have assigned more than 10 colors and must provide a palette to colors')
+            colors = sns.color_palette("tab10")[:len(cat_ordering)]
+        else:
+            colors = colors
 
         fig, ax = plt.subplots(figsize = (10,5))
         sns.lineplot(data = res_all, y = 'score', x = 'condition', hue =  'cat', palette = colors,
                      ax = ax)
 
         handles, labels = ax.get_legend_handles_labels()
-        labels = [labels[0]] + ['{:.2f}'.format(float(i)) for i in labels[1:]]
-        ax.legend(labels=labels, handles = handles,bbox_to_anchor=(-0.1, 1), title = 'CC-LR groups')
+        labels = [labels[0]] + ['{:.0f}'.format(float(i)) for i in labels[1:]]
+        ax.legend(labels=labels, handles = handles,bbox_to_anchor=(-0.1, 1), title = 'CC-LR subcategory pair')
 
         if file_name is not None:
             plt.savefig(file_name, bbox_to_inches = 'tight')
@@ -864,4 +879,10 @@ class Simulate():
         
         with open(filename, 'wb') as f:
             pickle.dump(self, f)
+
+
+# In[ ]:
+
+
+
 
