@@ -1,5 +1,9 @@
 **/*.rds
 **/*.csv
+**/*.pdf
+**/*.png
+**/*.tab
+
 cell2cell/
 .RData
 .Rhistory
