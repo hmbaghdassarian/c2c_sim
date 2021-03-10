@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[12]:
+# In[1]:
 
 
 import tempfile
@@ -17,15 +17,34 @@ import numpy as np
 from collections import OrderedDict
 import random
 
+# notebook
+import sys
+sys.path.append("../..")
+from definitions import ROOT_DIR
 
-# In[33]:
+# # script version
+# path_ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__), '../'))
+# import sys
+# sys.path.insert(1, path_)
+# from definitions import ROOT_DIR
+
+
+# In[3]:
 
 
 class graph_generator():
-    def __init__(self):
-        '''Initializer for generating and analyzing various networks'''
+    def __init__(self, seed = None):
+        '''Initializer for generating and analyzing various networks
+        
+        Parameters
+        ----------
+        seed: int, optional
+            value to set seed for graph output
+        '''
+        self.seed = seed
     
-    def bipartite_sf(self, nodes, degrees, alpha = 2, edges = None, check_properties = True, compare_barabasi = True):
+    def bipartite_sf(self, nodes, degrees, alpha = 2, edges = None, seed = None, 
+                     check_properties = True, compare_barabasi = True):
         '''Wraps bigraph_r and retrieves properties from the resultant random, undirected, scale-free, bipartite network
 
         Parameters
@@ -38,6 +57,8 @@ class graph_generator():
             scale-free exponent for network degree distribution (recommended 2<alpha<3)
         edges: int, optional
             number of (directed) edges
+        seed: int, optional
+            set a seed for random graph output
         check_properties: bool
             checks network properties (scale-free power distribution, undirected)
         compare_barabasi: bool
@@ -55,30 +76,28 @@ class graph_generator():
         comp: pd.DataFrame or None
             summary of differences in network properties between  bipartite network and similar Barabasi network
         '''
-    #     beta: float
-    #         fitness of node, alpha = 1 / beta + 1, alpha is scale-free exponent
-    #     beta = (1/alpha)-1
 
-        output = tempfile.mkstemp(suffix = '_bipartite_sf.csv', dir = './')[1]
-#         output = tempfile.mkstemp(suffix = '_bipartite_sf.csv', 
-#                                   dir = 'abspath')[1]
-        print(output)
+        curdir = os.path.dirname(os.path.abspath(os.curdir)) ##### set to bigraph_r directory
+        os.chdir(ROOT_DIR + '/core/')
+        output = tempfile.mkstemp(suffix = '_bipartite_sf.csv', dir = os.getcwd())[1]
         beta = alpha
         cmd = 'Rscript bigraph_r.r ' + '--beta=' + str(beta) + ' --nodes=' + str(nodes) + ' --degrees=' + str(degrees)
         cmd += ' --output=' + str(output) 
         if edges is not None:
             cmd += ' --edges=' + str(edges)
+        if self.seed is not None:
+            cmd += ' --seed=' + str(self.seed)
 
         print('Generate undirected, bipartite, scale-free graph')
         os.system(cmd)
 
-        # format adjacency matrix
-#         os.chdir(abspath)
-#         adj_matrix = pd.read_csv(os.path.join('../../scripts/simulation', os.path.basename(output)), index_col = 0)
         adj_matrix = pd.read_csv(output, index_col = 0)
-#         os.chdir(curdir)
+        try:
+            os.remove(output)
+        except:
+            warnings.warn('Graph output file not found')
+        os.chdir(curdir)
        
-        os.remove(output)
         adj_matrix.index = adj_matrix.index -1 # 0 indexing
         adj_matrix.columns = adj_matrix.index
 
@@ -295,6 +314,8 @@ class graph_generator():
         if nodes is None:
             if subset_size is None or subset_size >= 1 or subset_size <= 0:
                 raise ValueError('Must specify an appropriate subset size when nodes is not specified')
+            
+            random.seed(self.seed)
             nodes = random.sample(G.nodes, round(len(G.nodes)*(1-subset_size)))
         
         _G.remove_nodes_from(nodes)
@@ -324,6 +345,7 @@ class graph_generator():
         if edges is None:
             if subset_size is None or subset_size >= 1 or subset_size <= 0:
                 raise ValueError('Must specify an appropriate subset size when nodes is not specified')
+            random.seed(self.seed)
             edges = random.sample(G.edges, round(len(G.edges)*(1-subset_size)))
 
         _G.remove_edges_from(edges)

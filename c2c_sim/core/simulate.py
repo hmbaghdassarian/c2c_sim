@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[3]:
+# In[1]:
 
 
 import os
@@ -10,6 +10,7 @@ import copy
 import pickle
 
 import uuid
+from faker import Faker
 import random
 from tqdm import tqdm
 from tqdm import trange
@@ -41,6 +42,31 @@ from core import utils
 # In[2]:
 
 
+def generate_seeds(n, min_, max_, seed):
+    random.seed(seed)
+    range_ = random.randint(min_, max_)
+    random.seed(seed)
+    seeds = random.sample(range(range_), n)
+    return seeds
+
+def seed_random_ids(n, min_, max_, seed):
+    '''
+    Parameters
+    ----------
+    n: int
+        The number of random IDs to generate
+    min_, max_: int
+        Keeps random.sample ranges separate in case using function multiple times
+    seed: int
+    '''
+    seeds = generate_seeds(n, min_, max_, seed)
+    ids = list()
+    for i in range(len(seeds)):
+        rd = random.Random()
+        rd.seed(seeds[i])
+        ids.append(str(uuid.UUID(int=rd.getrandbits(128))).split('-')[-1])
+    return ids
+
 def weight_bias(n, skew):
     '''
     n: int
@@ -60,25 +86,28 @@ def weight_bias(n, skew):
         biased = biased/sum(biased)
     return biased*100
 
+
+# In[3]:
+
+
 class LR():
     '''object to store metadata and relevant information for the ligan-receptor dimension of tensor
     for internal use
     
     '''
     def __init__(self, B, ligands, receptors, edge_list, network_type = None, alpha = None, 
-                 fit = None, comp = None, p = None):
+                 fit = None, comp = None, p = None, seed = None):
         '''Initialize
         
         Parameters
         ----------
-
         B: nx.Graph
             a undirected bipartite network representing PPI between ligands and receptors (direction would always be L-->R)
         ligands: list 
             ligand IDs for each protein
         receptors: list
             receptor IDs for each protein
-        self.edge_list: list
+        edge_list: list
             each entry is a tuple representing a potential interaction between a ligand-receptor pair, ligands on 0 index of each tuple
         network_type: str
             "scale-free" indicates scale-free network, "normal" indicates a normal degree distribution
@@ -90,6 +119,8 @@ class LR():
             scale-free network parameters for B_ig (p-value from Kolmogrov-Smirnov test)
         comp: pd.DataFrame or None
             summary of differences in network properties between  bipartite network and similar Barabasi network
+        seed: int, optional
+            value to set seed for graph output
         '''
         if network_type is None:
             self.network_type = 'user-speficied'
@@ -103,6 +134,7 @@ class LR():
         self.fit = fit
         self.comp = comp
         self.p = p
+        self.seed = seed
     def generate_metadata(self, n_LR_cats = {2: 0}, cat_skew = 0):
         '''Generate metadata groupings for the L-R pairs. Categories are defined as distinct types of 
         metadata associated with the LR pair, e.g. "signaling pathway". Subcategories are
@@ -121,26 +153,48 @@ class LR():
         '''
         if len(n_LR_cats) > 1:
             raise ValueError('Currently, only one metadata category can be considered')
-        # group each LR into the categories above
-        # generate categories
-        LR_categories = [str(uuid.uuid4()).split('-')[-1] for i in range(len(n_LR_cats))]
+        else:
+            n_subcat = list(n_LR_cats.keys())[0]
+            
+        # seed IDs
+        if self.seed is not None:
+            all_ids = seed_random_ids(len(n_LR_cats) + n_subcat, 1e9/2, 1e9, self.seed)
+            LR_categories = all_ids[:len(n_LR_cats)]
+            pop_ids = all_ids[len(n_LR_cats):]
+        else:
+            LR_categories = [str(uuid.uuid4()).split('-')[-1] for i_ in range(len(n_LR_cats))]
+            pop_ids = [str(uuid.uuid4()).split('-')[-1] for i_ in range(n_subcat)]
+        
         cat_bias = weight_bias(n = len(LR_categories), skew = cat_skew)
+        random.seed(self.seed)
+        rand_cats = random.choices(population = LR_categories, weights=cat_bias, 
+                                                  k=len(self.edge_list))
         self.LR_metadata = pd.DataFrame(data = {'LR_id': self.edge_list, 
-                        'category': random.choices(population = LR_categories, weights=cat_bias, 
-                                                  k=len(self.edge_list))})
+                        'category': rand_cats})
 
         # generate subcategories
         self.LR_metadata['subcategory'] = float('nan')
-        i = 0
-        for n_subcat, subcat_skew in n_LR_cats.items():
+        for i, (n_subcat, subcat_skew) in enumerate(n_LR_cats.items()):
             sub = self.LR_metadata[self.LR_metadata.category == LR_categories[i]]
             subcat_bias = weight_bias(n = n_subcat, skew = subcat_skew)
-            self.LR_metadata.loc[sub.index, 'subcategory'] = random.choices(population = [str(uuid.uuid4()).split('-')[-1] for i in range(n_subcat)], 
+
+            random.seed(self.seed)        
+            rand_choices = random.choices(population = pop_ids, 
                            weights=subcat_bias, k=sub.shape[0])
-            i += 1
+            self.LR_metadata.loc[sub.index, 'subcategory'] = rand_choices
+#             i += 1
 
 class CCI_MD():
     '''Generate the CCI network for the tensor slice at time point 0'''
+    def __init__(self, seed = None):
+        '''
+        Paramters
+        -------
+        seed: int, optional
+                value to set seed for graph output
+        
+        '''
+        self.seed = seed 
     
     def cci_network(self, n_cells, directional = True, autocrine = True):
             '''Initialize the cell-cell interaction network.
@@ -154,8 +208,12 @@ class CCI_MD():
             autocrine: bool
                 whether cells can interact with themselves
             '''
-            # generate random cell ids
-            self._cell_ids = [str(uuid.uuid4()).split('-')[-1] for i in range(n_cells)]
+            # seed IDs
+            if self.seed is not None:
+                self._cell_ids = seed_random_ids(n_cells, 1e9/4, 1e9/2, self.seed)
+            else:
+                self._cell_ids = [str(uuid.uuid4()).split('-')[-1] for i in range(len(n_cells))]            
+                
             if directional:
                 self.cell_interactions = list(itertools.permutations(self._cell_ids, 2))
             else:
@@ -186,16 +244,28 @@ class CCI_MD():
         '''
         if len(n_cell_cats) > 1:
             raise ValueError('Currently, only one metadata category can be considered')
+        else:
+            n_subcat = list(n_cell_cats.keys())[0]
         if remove_homotypic > len(n_cell_cats):
             raise ValueError('The value for "remove_homotypic" cannot be larger than the total number of categories associated with the cells')
 
         # group each cell into the categories above
         # generate categories
-        cell_categories = [str(uuid.uuid4()).split('-')[-1] for i in range(len(n_cell_cats))]
+        if self.seed is not None:
+            all_ids = seed_random_ids(len(n_cell_cats) + n_subcat, 1e8, 1e9/4, self.seed)
+            cell_categories = all_ids[:len(n_cell_cats)]
+            pop_ids = all_ids[len(n_cell_cats):]
+        else:
+            cell_categories = [str(uuid.uuid4()).split('-')[-1] for i in range(len(n_cell_cats))] 
+            pop_ids = [str(uuid.uuid4()).split('-')[-1] for i_ in range(n_subcat)]
+        
         cat_bias = weight_bias(n = len(cell_categories), skew = cat_skew)
+        
+        random.seed(self.seed)
+        rand_cell_cat = random.choices(population = cell_categories, weights=cat_bias, 
+                                                  k=len(self._cell_ids))
         self.cell_ids = pd.DataFrame(data = {'cell_id': self._cell_ids, 
-                        'category': random.choices(population = cell_categories, weights=cat_bias, 
-                                                  k=len(self._cell_ids))})
+                        'category': rand_cell_cat})
         
         # generate subcategories
         self.cell_ids['subcategory'] = float('nan')
@@ -203,8 +273,13 @@ class CCI_MD():
         for n_subcat, subcat_skew in n_cell_cats.items():
             sub = self.cell_ids[self.cell_ids.category == cell_categories[i]]
             subcat_bias = weight_bias(n = n_subcat, skew = subcat_skew)
-            self.cell_ids.loc[sub.index, 'subcategory'] = random.choices(population = [str(uuid.uuid4()).split('-')[-1] for i in range(n_subcat)], 
+            
+            random.seed(self.seed)        
+            rand_choices = random.choices(population = pop_ids, 
                            weights=subcat_bias, k=sub.shape[0])
+            
+            
+            self.cell_ids.loc[sub.index, 'subcategory'] = rand_choices
             i += 1
         self.cell_metadata = self.cell_ids
         del self.cell_ids
@@ -278,110 +353,17 @@ class sim_tensor():
         self.rank = self.cell_lr_metadata.shape[0]
 
 
-# In[ ]:
+# In[4]:
 
-
-def fold_change_pattern(initial_value, score_change = 'max'):
-    '''The maximum change in the average LR score given the starting value'''
-    decrease = False
-    if initial_value > 0.5:
-        initial_value = 0.5 - (initial_value - 0.5)
-        decrease = True
-    
-    if score_change == 'max':
-        change = 1 - initial_value
-    elif score_change == 'scale':
-        if initial_value >= 0.2:
-            change = 2*initial_value
-        else:
-            change = initial_value + 0.2
-        change = change - initial_value
-    else:
-        raise ValueError('Argument score_change can only be "scale" or "max"')
-    
-    if decrease:
-        change = - change
-    
-    return change
-
-def linear(x, n_conditions):
-    return list(np.linspace(x[1], x[1] + x[0], n_conditions))
-
-def fit_increasing_power(x,adj1,adj2,pw):
-    return ((x+adj1) ** pw) * adj2
-
-def power(x, n_conditions):
-    change, initial_val = x[0], x[1]
-    if change > 0: 
-        # https://stackoverflow.com/questions/33186740/fitting-exponential-function-through-two-data-points-with-scipy-curve-fit
-        p1 = [1, n_conditions] 
-        p2 = [initial_val, initial_val + change]
-
-        pw = 0.2
-        A = np.exp(np.log(p2[0]/p2[1])/pw)
-        a = (p1[0] - p1[1]*A)/(A-1)
-        b = p2[0]/(p1[0]+a)**pw
-        xf=np.linspace(1,n_conditions, n_conditions)
-        vector = fit_increasing_power(xf, a, b, pw)
-    else:
-        if initial_val + change == 0:
-            vector = np.geomspace(initial_val, initial_val + change + 1e-9, num=n_conditions)
-        else:
-            vector = np.geomspace(initial_val, initial_val + change, num=n_conditions)
-    return vector
-
-def pulse(x, n_conditions):
-    change = x[0]
-    initial_val = x[1]
-    
-    vector = [initial_val] * n_conditions # initialize
-    
-    if n_conditions % 2 == 1:
-        mid_point = [math.floor(n_conditions/2)]
-    else:
-        mid_point = [n_conditions/2 - 1, n_conditions/2]
-
-    periph = None
-    if n_conditions >= 5: 
-        periph = [min(mid_point)-1, max(mid_point)+1]
-    
-    for m in mid_point:
-        vector[int(m)] = initial_val + change
-    if periph is not None:
-        for p in periph:
-            vector[int(p)] = initial_val + (change*0.5)
-    return vector
-
-def oscillate(x, n_conditions):
-    osc_period = 3
-    if n_conditions > 3:
-        iter_vals = list(np.linspace(x[1], x[1] + x[0], osc_period))
-        iter_vals += [iter_vals[1]]#iter_vals[1:-1][::-1]
-
-        vector = list()
-        for i,j in enumerate(itertools.cycle(iter_vals)):
-            vector.append(j)
-            if i >= n_conditions - 1:
-                break
-        return vector
-    else:
-        return pulse(x, n_conditions)
-
-pattern_mapper = {'linear': linear, 'pulse': pulse, 'oscillate': oscillate, 
-                 'power': power}
-
-def generate_pattern(x, n_conditions):
-    vector = pattern_mapper[x[0]](x[1:], n_conditions)
-    vector[0] = x[2]
-    return vector
 
 class Simulate():
-    def __init__(self):
+    def __init__(self, seed = None):
         '''Initialize self
 
         '''
         self.cci = None
         self._convert_bulk = None
+        self.seed = seed
     
     def LR_network(self, network_type = None, B = None, subset = False, **params):
         '''
@@ -403,7 +385,7 @@ class Simulate():
         **params: dict (keys for each option specified below)
             the required parameters for generating a bipartite, undirected random network either scale-free or not. \
             
-            network_type = scale-free: keys - nodes, degrees, alpha, edges (see graphs.graph_generator.bipartite_sf for description) 
+            network_type = scale-free: keys - nodes, degrees, alpha, edges, seed (see graphs.graph_generator.bipartite_sf for description) 
             network_type = normal: keys - n_ligands, n_receptors, p analogous to n,m,p in nx.bipartite.gnmk_random_graph
             B != None: keys - n_ligands as described above
             subset = True: keys - 
@@ -425,7 +407,7 @@ class Simulate():
 
 
         '''
-        gg = gg_() # return networkx object for graphs
+        gg = gg_(seed = self.seed) # return networkx object for graphs
         user = False
         if B is not None: #untested
             user = True
@@ -444,26 +426,27 @@ class Simulate():
                     B = gg.subset_nodes(B, subset_size = params['subset_size'], drop = True)
                 else:
                     raise ValueError("The subset_type param must be either 'edges' or 'nodes'")
-            
-            
+                    
         elif network_type == 'scale-free': 
             if 'degrees' not in params or 'nodes' not in params:
                 raise ValueError('Must specify degrees and nodes in **params')
             if 'alpha' not in params: 
                 params['alpha'] = 2 # also default in gg obj, didn't make it a **kwrag
-            if 'edges' not in params:
-                B, node_groups, fit, comp = gg.bipartite_sf(nodes = params['nodes'], degrees = params['degrees'], 
-                                                            alpha = params['alpha'])
+            
+            for k in set(['edges']).difference(params.keys()):
+                params[k] = None
             else:
                 B, node_groups, fit, comp = gg.bipartite_sf(nodes = params['nodes'], degrees = params['degrees'], 
-                                                        alpha = params['alpha'], edges = ['edges'])  
+                                                        alpha = params['alpha'], edges = params['edges'], 
+                                                           seed = self.seed)  
             B = B['nx']
             params['n_ligands'] = params['nodes'] # same no. of ligands and receptors
         elif network_type == 'normal':
             if sorted(params) != ['n_ligands', 'n_receptors', 'p']:
                 raise ValueError('Must specify n_ligands, n_receptors in **params')
             else:
-                B = nx.bipartite.random_graph(params['n_ligands'],params['n_receptors'], params['p'])
+                B = nx.bipartite.random_graph(params['n_ligands'],params['n_receptors'], params['p'], 
+                                             seed = self.seed)
         else:
             raise ValueError('Must specify an appropriate network_type or provide a network B')
         
@@ -471,12 +454,12 @@ class Simulate():
         
         # store PPI information in LR()
         if user:
-            self.LR = LR(B, ng['1'], ng['2'], edge_list)
+            self.LR = LR(B, ng['1'], ng['2'], edge_list, seed = self.seed)
         elif network_type == 'scale-free':
             self.LR = LR(B, ng['1'], ng['2'], edge_list, network_type = network_type, 
-                         alpha = params['alpha'], fit = fit, comp = comp)
+                         alpha = params['alpha'], fit = fit, comp = comp, seed = self.seed)
         elif network_type == 'normal':
-            self.LR = LR(B, ng['1'], ng['2'], edge_list, network_type = network_type, p = params['p'])
+            self.LR = LR(B, ng['1'], ng['2'], edge_list, network_type = network_type, p = params['p'], seed = self.seed)
 
     def emulate_sf_network(self, G):
         '''Emulate a user-provided (recommended scale-free) network for L-R pair tensors dimension
@@ -492,7 +475,7 @@ class Simulate():
             random bipartite scale-free network built using G's properties
         
         '''
-        gg = gg_()
+        gg = gg_(seed = self.seed)
         fit = gg.power_fit(G)
         if fit.p < 0.05:
             warnings.warn('Input network is not scale-free')
@@ -619,17 +602,18 @@ class Simulate():
         # patterns over time
         ap = list()
         for i in range(math.ceil(self.n_patterns/len(patterns))):
+            random.seed(self.seed)
             random.shuffle(patterns)
             ap += patterns
         self.clrm.insert(3, 'pattern', ap[:self.n_patterns])
 
         self.clrm = pd.concat([self.clrm,
                   pd.DataFrame(index = self.clrm.index, columns = [str(i) for i in range(1,self.n_conditions)])], axis = 1)
-        self.clrm.insert(3, 'change', self.clrm['0'].apply(fold_change_pattern, args = (score_change,)))
+        self.clrm.insert(3, 'change', self.clrm['0'].apply(utils.fold_change_pattern, args = (score_change,)))
 
         # apply patterns to get averages across conditions
         if self.n_conditions > 1:
-            self.clrm[[str(i) for i in range(self.n_conditions)]] = self.clrm[['pattern', 'change', '0']].apply(generate_pattern, args = (self.n_conditions,), axis = 1).tolist()
+            self.clrm[[str(i) for i in range(self.n_conditions)]] = self.clrm[['pattern', 'change', '0']].apply(utils.generate_pattern, args = (self.n_conditions,), axis = 1).tolist()
 
     def generate_tensor(self, noise, binary = False, bulk = False, noise_max = None):
         '''Generates the tensor.
@@ -698,11 +682,19 @@ class Simulate():
             if noise_max is None:
                 noise_max = self.clrm['0'].min()
             scale = noise_max/np.array([utils.piecewise_fit(noise_max, *utils.fit_params)])[0]
+            if self.seed is not None:
+                seeds = generate_seeds(len(c_labels)*self.clrm.index.shape[0]*3, 1e8, 1e9/4, self.seed)
+            else: 
+                seeds = [None]*len(c_labels)*3
+            
+            seed_idx = 0
             for cond in c_labels:
                 df = self.ts_frame.copy()
                 # background
                 vals = utils.get_truncated_normal(n = self.ts_frame.shape[0]*self.ts_frame.shape[1], 
-                                                  sd = noise*noise_max, mean = 0)*scale
+                                                  sd = noise*noise_max, mean = 0, 
+                                                 seed = seeds[seed_idx])*scale
+                seed_idx += 1
                 vals[vals>1] = 1
                 df[:] = vals.reshape(self.ts_frame.shape)
                 for idx in self.clrm.index: # non-background
@@ -716,11 +708,14 @@ class Simulate():
                         noise_max_ = vc[vc>0].min()
                         scale_ = noise_max_/np.array([utils.piecewise_fit(noise_max_, *utils.fit_params)])[0]
                         vals = utils.get_truncated_normal(n = len(coords[0]), 
-                                                  sd = noise*noise_max_, mean = 0)*scale_
+                                                  sd = noise*noise_max_, mean = 0, seed = seeds[seed_idx])*scale_
+                        seed_idx += 1
                         vals[vals>1] = 1
                     else: # sd function of the average value
                         vals = utils.get_truncated_normal(n = len(coords[0]), 
-                                                                   sd = noise*avg_val*1.1, mean = avg_val)
+                                                                   sd = noise*avg_val*1.1, mean = avg_val, 
+                                                         seed = seeds[seed_idx])
+                        seed_idx += 1
                     df.values[coords] = vals
                 self.ts[cond] = df
 
@@ -879,10 +874,4 @@ class Simulate():
         
         with open(filename, 'wb') as f:
             pickle.dump(self, f)
-
-
-# In[ ]:
-
-
-
 

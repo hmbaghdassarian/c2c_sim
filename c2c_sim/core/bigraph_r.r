@@ -1,8 +1,7 @@
-
 #! /usr/bin/env Rscript
 'Generate a scale-free, undirected, bipartite graph
 Usage:
-    bigraph_r.r --beta=<float> --nodes=<int> --degrees=<int> [--output=<./bipiartite_sf.csv>] [--edges=<int>]
+    bigraph_r.r --beta=<float> --nodes=<int> --degrees=<int> [--output=<./bipiartite_sf.csv>] [--edges=<int>] [--seed=<int>]
     
 Options:
     -h --help  Show this screen.
@@ -11,6 +10,7 @@ Options:
     --degrees=<int>  average degree of nodes 
     --output=<str> output filename with path [default: ./bipartite_sf.csv]
     --edges=<int>  number of (directed) edges
+    --seed=<int>  set a seed for random graph generation 
 ' -> doc
 
 withCallingHandlers({
@@ -22,18 +22,20 @@ withCallingHandlers({
 
 
 opts = docopt(doc)
-for (opt in c('nodes', 'edges', 'degrees', 'beta')){
+for (opt in c('nodes', 'edges', 'degrees', 'beta', 'seed')){
     val = opts[[opt]]
     if (!is.null(val)){
         opts[[opt]] = as.numeric(val)
         }
 }
 
-bg_sf<-function(n1, beta, k, fn, m){
+bg_sf<-function(n1, beta, k, fn, m, seed){
+    set.seed(seed)
     B = BiGraph$new(n1=n1, beta=beta, k=k, m=m, 
                     type = 'bipartite_sf', directed = F, is_adj = T)
     G = B$get_graph()
     write.csv(G, file = fn)
 }
 
-bg_sf(n1=opts[['nodes']], beta=opts[['beta']], k = opts[['degrees']], fn = opts[['output']], m = opts[['edges']])
+bg_sf(n1=opts[['nodes']], beta=opts[['beta']], k = opts[['degrees']], fn = opts[['output']], m = opts[['edges']], 
+     seed = opts[['seed']])

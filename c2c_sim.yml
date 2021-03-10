@@ -9,6 +9,7 @@ dependencies:
   - pandas=1.2.2
   - tensorly=0.5.1
   - r-docopt=0.7.1
+#   - faker=6.5.2
 # for cell2cell package----------------------------
   - scikit-learn=0.24.1
   - matplotlib=3.3.4

@@ -62,11 +62,10 @@ version = 1
 with open(data_path + 'sim_obj_v' + str(version) + '.pickle', 'rb') as f:
     sim_0 = pickle.load(f) # from sim_tensor_decompose_vis script
 
-fn_0 = data_path + 'error_vs_noise_' + str(version) + '_noise0_001.tab' # save results here
-fn_1 = data_path + 'error_vs_noise_' + str(version) + '_noise0_01.tab' # save results here
-fn_2 = data_path + 'error_vs_noise_' + str(version) + '_noise0_05.tab' # save results here
-fn_3 = data_path + 'error_vs_noise_' + str(version) + '_noise0_25.tab' # save results here
-fns = [fn_0,fn_1,fn_2,fn_3]
+fn_0 = data_path + 'error_vs_noise_' + str(version) + '_noise0_1.tab' # save results here
+fn_1 = data_path + 'error_vs_noise_' + str(version) + '_noise0_15.tab' # save results here
+fn_2 = data_path + 'error_vs_noise_' + str(version) + '_noise0_20.tab' # save results here
+fns = [fn_0,fn_1,fn_2]
 
 for fn in fns:
     if not os.path.isfile(fn):
@@ -128,7 +127,7 @@ def get_error(noise, noise_max, fn):
 
 
 counter = 0
-for nm in [0.001, 0.01, 0.05,0.25]:
+for nm in [0.1, 0.15, 0.20]:
     print('Cap background noise at {:.2f}'.format(nm))
     for noise in list(np.arange(0.01,0.1, 0.01)) + list(np.arange(0.1,1.01,0.1)):
         print('------------------------------------------')
