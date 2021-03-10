@@ -13,17 +13,17 @@ conda activate c2c_sim
 
 2. with your environment activated, install [StabEco](https://rdrr.io/github/keepsimpler/StabEco/) following the installation instructions. If install with the "remotes" package does not work, try to install with devtools in R:
 
-⋅⋅⋅Option 1:
+>Option 1:
 ```
 remotes::install_github("keepsimpler/StabEco")
 ```
 
-⋅⋅⋅Option 2: 
+>Option 2: 
 ```
 devtools::install_github("YosefLab/SymSim@a9e24981ba3f68cc35b93ae34402e25bfa1971f9")
 ```
 
-⋅⋅⋅Option 3:
+>Option 3:
 ```
 devtools::install_github("YosefLab/SymSim@v0.0.0.9000")
 ```
