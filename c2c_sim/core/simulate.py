@@ -10,7 +10,7 @@ import copy
 import pickle
 
 import uuid
-from faker import Faker
+# from faker import Faker
 import random
 from tqdm import tqdm
 from tqdm import trange
@@ -212,7 +212,7 @@ class CCI_MD():
             if self.seed is not None:
                 self._cell_ids = seed_random_ids(n_cells, 1e9/4, 1e9/2, self.seed)
             else:
-                self._cell_ids = [str(uuid.uuid4()).split('-')[-1] for i in range(len(n_cells))]            
+                self._cell_ids = [str(uuid.uuid4()).split('-')[-1] for i in range((n_cells))]            
                 
             if directional:
                 self.cell_interactions = list(itertools.permutations(self._cell_ids, 2))
@@ -435,10 +435,10 @@ class Simulate():
             
             for k in set(['edges']).difference(params.keys()):
                 params[k] = None
-            else:
-                B, node_groups, fit, comp = gg.bipartite_sf(nodes = params['nodes'], degrees = params['degrees'], 
-                                                        alpha = params['alpha'], edges = params['edges'], 
-                                                           seed = self.seed)  
+#             else:
+            B, node_groups, fit, comp = gg.bipartite_sf(nodes = params['nodes'], degrees = params['degrees'], 
+                                                    alpha = params['alpha'], edges = params['edges'], 
+                                                       seed = self.seed)  
             B = B['nx']
             params['n_ligands'] = params['nodes'] # same no. of ligands and receptors
         elif network_type == 'normal':
@@ -685,7 +685,7 @@ class Simulate():
             if self.seed is not None:
                 seeds = generate_seeds(len(c_labels)*self.clrm.index.shape[0]*3, 1e8, 1e9/4, self.seed)
             else: 
-                seeds = [None]*len(c_labels)*3
+                seeds = [None]*len(c_labels)*self.clrm.index.shape[0]*3
             
             seed_idx = 0
             for cond in c_labels:
