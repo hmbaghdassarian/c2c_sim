@@ -39,10 +39,10 @@ if [[ "$ACT_ENV" != "$NAME" ]]; then
 fi
 
 # begin package installs
-conda install -y -c conda-forge mamba
+conda install -y -c conda-forge mamba=0.12.2
 mamba install -y -c bioconda bioconductor-biobase=2.50.0
-mamba install -y -c conda-forge r-devtools
-Rscript setup_cellchat_env1.r
-mamba install -y -c anaconda cairo 
-# Rscript setup_cellchat_env2.r
-# mamba install -y -c conda-forge r-rhpcblasctl
+mamba install -y -c conda-forge r-devtools=2.4.0
+mamba install -y -c conda-forge r-cairo=1.5_12.2 r-biocmanager=1.30.12  
+Rscript setup_cellchat_env.r
+mamba install -y -c conda-forge r-rhpcblasctl=0.20_137
+echo "Complete, activate environment using: conda activate $NAME"

@@ -1,4 +1,6 @@
-Running the bash script will set up a conda environment with all necessary packages to run the CellChat package
+Running the bash script will set up a conda environment with all necessary packages to run the CellChat package (only tested on Linux)
+
+Requirements: anaconda >= 4.9.2
 
 Use the following command:
 
