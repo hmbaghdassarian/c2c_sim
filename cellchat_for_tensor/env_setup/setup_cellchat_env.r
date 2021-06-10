@@ -12,5 +12,7 @@ BiocManager::install("ComplexHeatmap", ask = F, update = F) #2.6.2 - should go w
 
 devtools::install_github("sqjin/CellChat@b3ccf96664e29e702e0c23d0bb4e4fc566c72034")
 
+BiocManager::install("rhdf5", ask = F, update = F) # version 2.34.0
+
 #library(remotes)
 #remotes::install_github("mojaveazure/seurat-disk@163f1aade5bac38ed1e9e9c912283a7e74781610") # for SeuratDisk only

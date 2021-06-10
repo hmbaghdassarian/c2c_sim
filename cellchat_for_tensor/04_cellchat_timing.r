@@ -16,12 +16,14 @@ suppressPackageStartupMessages({
     library(RhpcBLASctl, quietly = T)
     library(Matrix, quietly = T)
     library(docopt, quietly = T)
+    library(rhdf5, quietly = T)
+    library(stringr, quietly = T)
 })
 options(stringsAsFactors = FALSE)
-expression_data_path = '/data2/hratch/immune_CCI/covid/covid_atlas/interim/umi_for_timing/'
+# expression_data_path = '/data2/hratch/immune_CCI/covid/covid_atlas/interim/umi_for_timing/'
 input_path = '/data2/hratch/immune_CCI/covid/covid_atlas/interim/timing_inputs/'
 
-RhpcBLASctl::blas_set_num_threads(20) # no multithreading
+# RhpcBLASctl::blas_set_num_threads(1) # no multithreading
 
 cell_grouper<-'majorType'
 
@@ -54,14 +56,23 @@ sample_context_map<-readRDS(paste0(input_path, 'sample_context_map.rds'))
 contexts<-unique(sample_context_map)
 
 # load the UMI counts
+read_sample_h5<-function(sn){
+    counts<-h5read(paste0(input_path, 'umi_per_sample.h5'), sn)
+    count<-counts[[4]]
+    colnames(count)<-counts[[2]]
+    rownames(count)<-sapply(counts[[1]], function(x) str_replace_all(x, '-', '.')) 
+    return(count)
+}
+
+
 if (!group){
-    counts<-lapply(setNames(sample.names, sample.names), function(sn) t(read.csv(paste0(expression_data_path, sn, '.csv'), row.names = 1)))
+    counts<-lapply(setNames(sample.names, sample.names), function(sn) read_sample_h5(sn))
 }else{ # group by context
     by.context<-lapply(setNames(contexts, contexts), function(context) names(sample_context_map[sample.names][sample_context_map[sample.names] == context]))
     
     group_by_context<-function(context){
         sns<-by.context[[context]]       
-        counts<-lapply(sns, function(sn) t(read.csv(paste0(expression_data_path, sn, '.csv'), row.names = 1)))    
+        counts<-lapply(sns, function(sn) read_sample_h5(sn))    
         counts<-do.call(cbind, counts)
         return (counts)
     }
@@ -115,7 +126,7 @@ rankSimilarity_ <- function(object, slot.name = "netP", type = c("functional","s
 
   return(df)
 }
-                   
+
 # create cellchat object for each sample or sample.name
 covid.list<-list()
 for (sample.name in names(counts)){
@@ -152,7 +163,4 @@ for (pc in names(pairwise_comparisons)){
     path.dist<-rankSimilarity_(cellchat, type = 'structural', comparison1 = 1:length(covid.list),
                                comparison2 = pairwise_comparisons[[pc]]) 
 }                      
-
-print('complete')
-
-
+print('Complete')

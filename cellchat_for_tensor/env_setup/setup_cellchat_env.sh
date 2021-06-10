@@ -43,8 +43,9 @@ conda install -y -c conda-forge mamba=0.12.2
 mamba install -y -c bioconda bioconductor-biobase=2.50.0
 mamba install -y -c conda-forge r-devtools=2.4.0
 mamba install -y -c conda-forge r-cairo=1.5_12.2 r-biocmanager=1.30.12  
-#mama install -y -c conda-forge r-hdf5r # for SeuratDisk only
+# mama install -y -c conda-forge r-hdf5r # for SeuratDisk only
 Rscript setup_cellchat_env.r
 mamba install -y -c conda-forge r-rhpcblasctl=0.20_137
-mamba install -c conda-forge r-docopt=0.7.1
+mamba install -y -c conda-forge r-docopt=0.7.1
+mamba install -y -c r r-stringr=1.4.0
 echo "Complete, activate environment using: conda activate $NAME"
