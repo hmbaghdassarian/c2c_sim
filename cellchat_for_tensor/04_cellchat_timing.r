@@ -1,6 +1,7 @@
+#! /usr/bin/env Rscript
 'Time how long it takes to run cellchat given some samples
 Usage:
-    Rscript 04_cellchat_timing.r --number=<int> --group=<bool> [--seed=<int>]
+    04_cellchat_timing.r --number=<int> --group=<bool> [--seed=<int>]
     
 Options:
     -h --help  Show this screen.
@@ -20,7 +21,7 @@ options(stringsAsFactors = FALSE)
 expression_data_path = '/data2/hratch/immune_CCI/covid/covid_atlas/interim/umi_for_timing/'
 input_path = '/data2/hratch/immune_CCI/covid/covid_atlas/interim/timing_inputs/'
 
-RhpcBLASctl::blas_set_num_threads(1) # no multithreading
+RhpcBLASctl::blas_set_num_threads(20) # no multithreading
 
 cell_grouper<-'majorType'
 
@@ -29,8 +30,11 @@ for (opt in c('number', 'group', 'seed')){
     val = opts[[opt]]
     if (!is.null(val)){
         opts[[opt]] = as.numeric(val)
-        }
+        }}
 
+number<-opts[['number']]
+group<-opts[['group']]
+seed<-opts[['seed']]
 set.seed(seed)
 
 samples<-read.csv(paste0(input_path, 'samples_for_timing.csv'))
@@ -65,12 +69,59 @@ if (!group){
                     
 }
 
+#' Rank the similarity of the shared signaling pathways based on their joint manifold learning
+#'
+#' @param object CellChat object
+#' @param slot.name the slot name of object that is used to compute centrality measures of signaling networks
+#' @param type "functional","structural"
+#' @param comparison1 a numerical vector giving the datasets for comparison. This should be the same as `comparison` in `computeNetSimilarityPairwise`
+#' @param comparison2 a numerical vector with two elements giving the datasets for comparison.
+#'
+#' If there are more than 2 datasets defined in `comparison1`, `comparison2` can be defined to indicate which two datasets used for computing the distance.
+#' e.g., comparison2 = c(1,3) indicates the first and third datasets defined in `comparison1` will be used for comparison.
+#' @import ggplot2
+#' @importFrom methods slot
+#' @return
+#' @export
+#'
+#' @examples
+rankSimilarity_ <- function(object, slot.name = "netP", type = c("functional","structural"), comparison1 = NULL,  
+                           comparison2 = c(1,2)) {
+  type <- match.arg(type)
+
+  if (is.null(comparison1)) {
+    comparison1 <- 1:length(unique(object@meta$datasets))
+  }
+  comparison.name <- paste(comparison1, collapse = "-")
+  cat("Compute the distance of signaling networks between datasets", as.character(comparison1[comparison2]), '\n')
+  comparison2.name <- names(methods::slot(object, slot.name))[comparison1[comparison2]]
+
+  Y <- methods::slot(object, slot.name)$similarity[[type]]$dr[[comparison.name]]
+  group <- sub(".*--", "", rownames(Y))
+  data1 <- Y[group %in% comparison2.name[1], ]
+  data2 <- Y[group %in% comparison2.name[2], ]
+  rownames(data1) <- sub("--.*", "", rownames(data1))
+  rownames(data2) <- sub("--.*", "", rownames(data2))
+
+  pathway.show = as.character(intersect(rownames(data1), rownames(data2)))
+  data1 <- data1[pathway.show, ]
+  data2 <- data2[pathway.show, ]
+  euc.dist <- function(x1, x2) sqrt(sum((x1 - x2) ^ 2))
+  dist <- NULL
+  for(i in 1:nrow(data1)) dist[i] <- euc.dist(data1[i,],data2[i,])
+  df <- data.frame(name = pathway.show, dist = dist, row.names = pathway.show)
+  df <- df[order(df$dist), , drop = F]
+  df$name <- factor(df$name, levels = as.character(df$name))
+
+  return(df)
+}
+                   
 # create cellchat object for each sample or sample.name
 covid.list<-list()
 for (sample.name in names(counts)){
     # loop through each sample.name and create a cell type future
     expr<-CellChat::normalizeData(counts[[sample.name]])
-    cellchat<-createCellChat(object = as(expr, "dgCMatrix"), meta = md.cell[colnames(expr)], 
+    cellchat<-createCellChat(object = as(expr, "dgCMatrix"), meta = md.cell[colnames(expr),], 
                                    group.by = cell_grouper)
     cellchat@DB <- humandb # human organism
 
@@ -92,7 +143,7 @@ for (sample.name in names(counts)){
 cellchat <- mergeCellChat(covid.list, add.names = names(covid.list))
 cellchat <- computeNetSimilarityPairwise(cellchat, type = 'structural')
 cellchat <- netEmbedding(cellchat, type = 'structural')
-cellchat <- netClustering(cellchat, type = 'structural',  do.parallel = F, do.plot = F)
+cellchat <- netClustering(cellchat, type = 'structural',  do.parallel = T, do.plot = F)
 # Manifold learning of the signaling networks for datasets 
 pairwise_comparisons<-sapply(as.data.frame(combn(seq(1:length(covid.list)),2)), 
                          function(x) as.numeric(x), simplify = F) # pairwise combination of elements
@@ -101,3 +152,7 @@ for (pc in names(pairwise_comparisons)){
     path.dist<-rankSimilarity_(cellchat, type = 'structural', comparison1 = 1:length(covid.list),
                                comparison2 = pairwise_comparisons[[pc]]) 
 }                      
+
+print('complete')
+
+
