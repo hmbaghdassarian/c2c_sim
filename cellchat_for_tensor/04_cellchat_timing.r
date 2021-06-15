@@ -1,3 +1,4 @@
+
 #! /usr/bin/env Rscript
 'Time how long it takes to run cellchat given some samples
 Usage:
@@ -23,7 +24,7 @@ options(stringsAsFactors = FALSE)
 # expression_data_path = '/data2/hratch/immune_CCI/covid/covid_atlas/interim/umi_for_timing/'
 input_path = '/data2/hratch/immune_CCI/covid/covid_atlas/interim/timing_inputs/'
 
-# RhpcBLASctl::blas_set_num_threads(1) # no multithreading
+RhpcBLASctl::blas_set_num_threads(1) # no multithreading
 
 cell_grouper<-'majorType'
 
@@ -55,6 +56,22 @@ md.cell <- read.csv(paste0(input_path,'metadata_for_timing.csv'), row.names = 1)
 sample_context_map<-readRDS(paste0(input_path, 'sample_context_map.rds'))
 contexts<-unique(sample_context_map)
 
+# # load the UMI counts
+# if (!group){
+#     counts<-lapply(setNames(sample.names, sample.names), function(sn) t(read.csv(paste0(expression_data_path, sn, '.csv'), row.names = 1)))
+# }else{ # group by context
+#     by.context<-lapply(setNames(contexts, contexts), function(context) names(sample_context_map[sample.names][sample_context_map[sample.names] == context]))
+    
+#     group_by_context<-function(context){
+#         sns<-by.context[[context]]       
+#         counts<-lapply(sns, function(sn) t(read.csv(paste0(expression_data_path, sn, '.csv'), row.names = 1)))    
+#         counts<-do.call(cbind, counts)
+#         return (counts)
+#     }
+#     counts<-lapply(setNames(contexts, contexts), function(context) group_by_context(context))                   
+                    
+# }
+
 # load the UMI counts
 read_sample_h5<-function(sn){
     counts<-h5read(paste0(input_path, 'umi_per_sample.h5'), sn)
@@ -65,8 +82,9 @@ read_sample_h5<-function(sn){
 }
 
 
-if (!group){
+if (!group){                             
     counts<-lapply(setNames(sample.names, sample.names), function(sn) read_sample_h5(sn))
+                                  
 }else{ # group by context
     by.context<-lapply(setNames(contexts, contexts), function(context) names(sample_context_map[sample.names][sample_context_map[sample.names] == context]))
     
@@ -79,6 +97,12 @@ if (!group){
     counts<-lapply(setNames(contexts, contexts), function(context) group_by_context(context))                   
                     
 }
+                   
+# filter for intersection of cell types across samples/contexts - to make comparable with Tensor-cell2cell
+# cell.types<-Reduce(intersect, lapply(sample.names, function(sn) unique(md.cell[md.cell$sampleID == sn, cell_grouper])))
+cell.types<-Reduce(intersect, lapply(counts, function(df) unique(md.cell[colnames(df), cell_grouper])))
+cell.ids<-rownames(md.cell[md.cell[[cell_grouper]] %in% cell.types, ])   
+counts<-lapply(setNames(counts, counts), function(df) df[colnames(df) %in% cell.ids,])                      
 
 #' Rank the similarity of the shared signaling pathways based on their joint manifold learning
 #'
@@ -154,7 +178,7 @@ for (sample.name in names(counts)){
 cellchat <- mergeCellChat(covid.list, add.names = names(covid.list))
 cellchat <- computeNetSimilarityPairwise(cellchat, type = 'structural')
 cellchat <- netEmbedding(cellchat, type = 'structural')
-cellchat <- netClustering(cellchat, type = 'structural',  do.parallel = T, do.plot = F)
+cellchat <- netClustering(cellchat, type = 'structural',  do.parallel = F, do.plot = F)
 # Manifold learning of the signaling networks for datasets 
 pairwise_comparisons<-sapply(as.data.frame(combn(seq(1:length(covid.list)),2)), 
                          function(x) as.numeric(x), simplify = F) # pairwise combination of elements
@@ -163,4 +187,3 @@ for (pc in names(pairwise_comparisons)){
     path.dist<-rankSimilarity_(cellchat, type = 'structural', comparison1 = 1:length(covid.list),
                                comparison2 = pairwise_comparisons[[pc]]) 
 }                      
-print('Complete')
