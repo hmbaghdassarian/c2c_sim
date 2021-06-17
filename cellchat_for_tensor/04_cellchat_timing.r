@@ -27,6 +27,7 @@ input_path = '/data2/hratch/immune_CCI/covid/covid_atlas/interim/timing_inputs/'
 RhpcBLASctl::blas_set_num_threads(1) # no multithreading
 
 cell_grouper<-'majorType'
+type_ = 'functional'
 
 opts = docopt(doc)
 for (opt in c('number', 'group', 'seed')){
@@ -39,6 +40,10 @@ number<-opts[['number']]
 group<-opts[['group']]
 seed<-opts[['seed']]
 set.seed(seed)
+
+# seed=NULL
+# number = 3
+# group = 1
 
 samples<-read.csv(paste0(input_path, 'samples_for_timing.csv'))
 sample.names<-unlist(strsplit(samples[samples$n_samples == number, 'sample_names'], '; '))
@@ -55,22 +60,6 @@ humandb<-CellChatDB.human
 md.cell <- read.csv(paste0(input_path,'metadata_for_timing.csv'), row.names = 1)
 sample_context_map<-readRDS(paste0(input_path, 'sample_context_map.rds'))
 contexts<-unique(sample_context_map)
-
-# # load the UMI counts
-# if (!group){
-#     counts<-lapply(setNames(sample.names, sample.names), function(sn) t(read.csv(paste0(expression_data_path, sn, '.csv'), row.names = 1)))
-# }else{ # group by context
-#     by.context<-lapply(setNames(contexts, contexts), function(context) names(sample_context_map[sample.names][sample_context_map[sample.names] == context]))
-    
-#     group_by_context<-function(context){
-#         sns<-by.context[[context]]       
-#         counts<-lapply(sns, function(sn) t(read.csv(paste0(expression_data_path, sn, '.csv'), row.names = 1)))    
-#         counts<-do.call(cbind, counts)
-#         return (counts)
-#     }
-#     counts<-lapply(setNames(contexts, contexts), function(context) group_by_context(context))                   
-                    
-# }
 
 # load the UMI counts
 read_sample_h5<-function(sn){
@@ -102,7 +91,11 @@ if (!group){
 # cell.types<-Reduce(intersect, lapply(sample.names, function(sn) unique(md.cell[md.cell$sampleID == sn, cell_grouper])))
 cell.types<-Reduce(intersect, lapply(counts, function(df) unique(md.cell[colnames(df), cell_grouper])))
 cell.ids<-rownames(md.cell[md.cell[[cell_grouper]] %in% cell.types, ])   
-counts<-lapply(setNames(counts, counts), function(df) df[colnames(df) %in% cell.ids,])                      
+# counts<-lapply(setNames(counts, counts), function(df) df[,colnames(df) %in% cell.ids])  # lapply version slow for some reason, see for loop below                    
+ for (n in names(counts)){ 
+    df<-counts[[n]]
+    counts[[n]]<-df[,colnames(df) %in% cell.ids]
+}
 
 #' Rank the similarity of the shared signaling pathways based on their joint manifold learning
 #'
@@ -176,14 +169,16 @@ for (sample.name in names(counts)){
 
 # merge and analyze
 cellchat <- mergeCellChat(covid.list, add.names = names(covid.list))
-cellchat <- computeNetSimilarityPairwise(cellchat, type = 'structural')
-cellchat <- netEmbedding(cellchat, type = 'structural')
-cellchat <- netClustering(cellchat, type = 'structural',  do.parallel = F, do.plot = F)
+cellchat <- computeNetSimilarityPairwise(cellchat, type = type_)
+cellchat <- netEmbedding(cellchat, type = type_)
+cellchat <- netClustering(cellchat, type = type_,  do.parallel = F, do.plot = F)
 # Manifold learning of the signaling networks for datasets 
 pairwise_comparisons<-sapply(as.data.frame(combn(seq(1:length(covid.list)),2)), 
                          function(x) as.numeric(x), simplify = F) # pairwise combination of elements
 
 for (pc in names(pairwise_comparisons)){
-    path.dist<-rankSimilarity_(cellchat, type = 'structural', comparison1 = 1:length(covid.list),
+    path.dist<-rankSimilarity_(cellchat, type = type_, comparison1 = 1:length(covid.list),
                                comparison2 = pairwise_comparisons[[pc]]) 
 }                      
+
+
