@@ -7,7 +7,7 @@ c2c_sim is a pipeline for simulating cell-cell interaction dynamics across conte
 ```
 git clone git@github.com:hmbaghdassarian/c2c_sim.git
 cd c2c_sim
-conda encreate -n c2c_sim --file=c2c_sim.yml
+conda env create -n c2c_sim --file=c2c_sim.yml
 conda activate c2c_sim
 ```
 
