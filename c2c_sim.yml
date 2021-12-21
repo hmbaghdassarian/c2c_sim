@@ -9,4 +9,4 @@ dependencies:
   - r-base=4.0.3
   - r-docopt=0.7.1
   - pip:
-      - cell2cell #=0.4.0 for version that "explore" analysis was done with 
+      - cell2cell #==0.4.0 for version with simulation analyses associated with https://doi.org/10.1101/2021.09.20.461129 

@@ -11,20 +11,21 @@ conda env create -n c2c_sim --file=c2c_sim.yml
 conda activate c2c_sim
 ```
 
-2. with your environment activated, install [StabEco](https://rdrr.io/github/keepsimpler/StabEco/) following the installation instructions. If install with the "remotes" package does not work, try to install with devtools in R:
+2. with your environment activated, install [StabEco](https://rdrr.io/github/keepsimpler/StabEco/) following the installation instructions. First try installing the specific version package was written from using devtools, otherwise can try installing with either remotes or devtools:
 
 >Option 1:
 ```
-remotes::install_github("keepsimpler/StabEco")
+devtools::install_github("keepsimpler/StabEco@fe71129dda26db1a0578557808960460e09201f6")
+
 ```
 
 >Option 2: 
 ```
-devtools::install_github("keepsimpler/StabEco")
+remotes::install_github("keepsimpler/StabEco")
 ```
 
 >Option 3:
 ```
-devtools::install_github("YosefLab/StabEco@fe71129dda26db1a0578557808960460e09201f6")
+devtools::install_github("keepsimpler/StabEco")
 ```
-3. To explore tensor outputs of the simulation, also install [cell2cell](https://github.com/earmingol/cell2cell)
+3. Explore directory shows analyses related to https://doi.org/10.1101/2021.09.20.461129
