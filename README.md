@@ -28,4 +28,4 @@ remotes::install_github("keepsimpler/StabEco")
 ```
 devtools::install_github("keepsimpler/StabEco")
 ```
-3. Explore directory shows analyses related to https://doi.org/10.1101/2021.09.20.461129
+3. Explore directory shows simulation  analyses related to https://doi.org/10.1101/2021.09.20.461129. Fully reproducible runs can be found at https://doi.org/10.24433/CO.0051950.v1
