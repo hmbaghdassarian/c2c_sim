@@ -106,6 +106,14 @@ class graph_generator():
 
         # igraph
         A = adj_matrix.replace(0, float('nan'), inplace = False).stack().reset_index()
+        
+        # note, need to double check the following:
+        msg = 'Need to make sure the symmetric matrix (due to bipartite) removes the bidirectionality "
+        msg += '(only take the upper triangle of A rather than the full matrix)'
+        # only taking the upper triangle will ensure one column of the adjacency list is only ligands and the other receptors
+        # otherwise will have both ligands and receptors present in both columns
+        warnings.warn(msg)
+        
         B_ig = igraph.Graph.Bipartite(edges = list(zip(A.level_0, A.level_1)), 
                               types = [True]*nodes + [False]*nodes)
 
